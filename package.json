@@ -1,0 +1,38 @@
+{
+  "name": "talkie",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "npm run dev -w @talkie/web",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "keys:generate": "node scripts/generate-keys.mjs",
+    "build": "npm run build:services && npm run build -w @talkie/web",
+    "build:services": "node scripts/build-services.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "e2e:chat": "tsx scripts/e2e-chat.ts",
+    "bot": "tsx scripts/chat-bot.ts",
+    "livekit": "node scripts/livekit-dev.mjs",
+    "call-bot": "tsx scripts/call-bot.ts",
+    "lint": "npm run lint -w @talkie/web",
+    "build:cpanel": "node scripts/build-cpanel.mjs"
+  },
+  "devDependencies": {
+    "@livekit/rtc-node": "^1.2.3",
+    "@types/node": "^22.19.0",
+    "esbuild": "^0.28.2",
+    "socket.io-client": "^4.8.4",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "vitest": "^5.1.1"
+  }
+}

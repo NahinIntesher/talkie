@@ -1,0 +1,20 @@
+{
+  "name": "@talkie/media-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1176.0",
+    "@talkie/auth-kit": "*",
+    "@talkie/bus": "*",
+    "@talkie/contracts": "*",
+    "@talkie/core": "*",
+    "@talkie/db": "*",
+    "sharp": "^0.34.0",
+    "zod": "^4.6.7"
+  }
+}

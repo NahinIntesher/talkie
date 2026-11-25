@@ -1,0 +1,16 @@
+# Keep the Docker build context small and free of secrets.
+**/node_modules
+**/dist
+**/.next
+**/*.log
+.git
+.env
+.env.*
+secrets
+data
+tools
+coverage
+apps/mobile
+.claude
+docs
+tests

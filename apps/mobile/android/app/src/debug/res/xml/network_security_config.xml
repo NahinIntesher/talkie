@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: lets the app reach the development servers (through `adb reverse`, the emulator host
+     10.0.2.2, or the local LiveKit server on the LAN) over plain HTTP/WS. Release builds use the default (HTTPS only). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

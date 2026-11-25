@@ -1,0 +1,255 @@
+import type { Locale } from '@/lib/i18n';
+
+const en = {
+  admin: 'Admin',
+  overview: 'Overview',
+  users: 'People',
+  reports: 'Reports',
+  audit: 'Audit log',
+  noAccess: 'You do not have access to the admin panel.',
+  // Overview
+  activeAccounts: 'Accounts',
+  activeToday: 'Active today',
+  activeWeek: 'Active this week',
+  suspended: 'Suspended',
+  openReports: 'Open reports',
+  messagesToday: 'Messages today',
+  totalMessages: 'Messages',
+  groups: 'Groups',
+  directChats: 'Direct chats',
+  callsTotal: 'Calls',
+  liveCalls: 'Calls now',
+  meetingsTotal: 'Meetings',
+  liveMeetings: 'Meetings now',
+  callMinutes: 'Call minutes (30 days)',
+  meetingMinutes: 'Meeting minutes (30 days)',
+  storage: 'Storage',
+  files: 'Files',
+  liveStatuses: 'Live statuses',
+  devices: 'Devices',
+  signupsChart: 'New accounts, last 30 days',
+  messagesChart: 'Messages, last 30 days',
+  callsChart: 'Calls, last 30 days',
+  meetingsChart: 'Meetings, last 30 days',
+  unavailable: 'Unavailable',
+  showTable: 'Show as table',
+  hideTable: 'Hide table',
+  day: 'Day',
+  count: 'Count',
+  // People
+  searchPeople: 'Search by name, username or email',
+  all: 'All',
+  active: 'Active',
+  staff: 'Staff',
+  pending: 'Unfinished sign-up',
+  deleted: 'Deleted',
+  joined: 'Joined',
+  lastActive: 'Last active',
+  never: 'Never',
+  loadMore: 'Load more',
+  nobody: 'No one found',
+  role: 'Role',
+  roles: { user: 'Member', moderator: 'Moderator', admin: 'Admin', owner: 'Owner' } as Record<string, string>,
+  statuses: { active: 'Active', suspended: 'Suspended', pending_profile: 'Unfinished sign-up', deleted: 'Deleted' } as Record<string, string>,
+  // Person
+  back: 'Back',
+  email: 'Email',
+  activity: 'Activity',
+  messagesSent: 'Messages sent',
+  groupsOwned: 'Groups owned',
+  lastMessage: 'Last message',
+  storageUsed: 'Storage used',
+  reportsFiled: 'Reports filed',
+  reportsAgainst: 'Reports about this person',
+  linkedDevices: 'Devices',
+  signedOut: 'Signed out',
+  suspend: 'Suspend',
+  restore: 'Restore account',
+  signOutEverywhere: 'Sign out everywhere',
+  changeRole: 'Change role',
+  reason: 'Reason',
+  suspendTitle: 'Suspend this account?',
+  suspendedReason: 'Reason',
+  confirm: 'Confirm',
+  cancel: 'Cancel',
+  done: 'Done',
+  signOutDone: 'Signed out of {n} devices',
+  // Reports
+  open: 'Open',
+  closed: 'Closed',
+  noReports: 'No reports',
+  reportedBy: 'Reported by',
+  reasons: { spam: 'Spam', harassment: 'Harassment', impersonation: 'Impersonation', inappropriate: 'Inappropriate content', other: 'Other' } as Record<string, string>,
+  reportStatus: { open: 'Open', reviewing: 'Reviewing', actioned: 'Action taken', dismissed: 'Dismissed' } as Record<string, string>,
+  review: 'Start review',
+  dismiss: 'Dismiss',
+  takeAction: 'Take action',
+  reopen: 'Reopen',
+  resolution: 'Note',
+  suspendTarget: 'Also suspend this person',
+  openReportsAbout: '{n} open reports',
+  group: 'Group',
+  members: '{n} members',
+  meeting: 'Meeting',
+  viewPerson: 'View',
+  // Audit
+  noAudit: 'Nothing yet',
+  actions: {
+    'user.suspend': 'suspended',
+    'user.restore': 'restored',
+    'user.sign_out': 'signed out everywhere',
+    'user.role': 'changed the role of',
+    'report.reviewing': 'started reviewing a report',
+    'report.actioned': 'closed a report with action',
+    'report.dismissed': 'dismissed a report',
+    'report.open': 'reopened a report',
+  } as Record<string, string>,
+  failed: 'Something went wrong. Try again.',
+};
+
+type Strings = typeof en;
+
+const bn: Strings = {
+  admin: 'অ্যাডমিন',
+  overview: 'সারসংক্ষেপ',
+  users: 'ব্যবহারকারী',
+  reports: 'রিপোর্ট',
+  audit: 'অডিট লগ',
+  noAccess: 'অ্যাডমিন প্যানেলে আপনার প্রবেশাধিকার নেই।',
+  activeAccounts: 'অ্যাকাউন্ট',
+  activeToday: 'আজ সক্রিয়',
+  activeWeek: 'এই সপ্তাহে সক্রিয়',
+  suspended: 'স্থগিত',
+  openReports: 'খোলা রিপোর্ট',
+  messagesToday: 'আজকের মেসেজ',
+  totalMessages: 'মেসেজ',
+  groups: 'গ্রুপ',
+  directChats: 'সরাসরি চ্যাট',
+  callsTotal: 'কল',
+  liveCalls: 'এখন কলে',
+  meetingsTotal: 'মিটিং',
+  liveMeetings: 'এখন মিটিংয়ে',
+  callMinutes: 'কলের মিনিট (৩০ দিন)',
+  meetingMinutes: 'মিটিংয়ের মিনিট (৩০ দিন)',
+  storage: 'স্টোরেজ',
+  files: 'ফাইল',
+  liveStatuses: 'চলমান স্ট্যাটাস',
+  devices: 'ডিভাইস',
+  signupsChart: 'নতুন অ্যাকাউন্ট, গত ৩০ দিন',
+  messagesChart: 'মেসেজ, গত ৩০ দিন',
+  callsChart: 'কল, গত ৩০ দিন',
+  meetingsChart: 'মিটিং, গত ৩০ দিন',
+  unavailable: 'পাওয়া যায়নি',
+  showTable: 'টেবিল দেখুন',
+  hideTable: 'টেবিল লুকান',
+  day: 'দিন',
+  count: 'সংখ্যা',
+  searchPeople: 'নাম, ইউজারনেম বা ইমেইল দিয়ে খুঁজুন',
+  all: 'সব',
+  active: 'সক্রিয়',
+  staff: 'স্টাফ',
+  pending: 'অসম্পূর্ণ সাইন-আপ',
+  deleted: 'মুছে ফেলা',
+  joined: 'যোগ দিয়েছেন',
+  lastActive: 'শেষ সক্রিয়',
+  never: 'কখনো না',
+  loadMore: 'আরও দেখুন',
+  nobody: 'কাউকে পাওয়া যায়নি',
+  role: 'ভূমিকা',
+  roles: { user: 'সদস্য', moderator: 'মডারেটর', admin: 'অ্যাডমিন', owner: 'মালিক' },
+  statuses: { active: 'সক্রিয়', suspended: 'স্থগিত', pending_profile: 'অসম্পূর্ণ সাইন-আপ', deleted: 'মুছে ফেলা' },
+  back: 'ফিরে যান',
+  email: 'ইমেইল',
+  activity: 'কার্যকলাপ',
+  messagesSent: 'পাঠানো মেসেজ',
+  groupsOwned: 'নিজের গ্রুপ',
+  lastMessage: 'শেষ মেসেজ',
+  storageUsed: 'ব্যবহৃত স্টোরেজ',
+  reportsFiled: 'করা রিপোর্ট',
+  reportsAgainst: 'এই ব্যক্তির বিরুদ্ধে রিপোর্ট',
+  linkedDevices: 'ডিভাইস',
+  signedOut: 'সাইন আউট',
+  suspend: 'স্থগিত করুন',
+  restore: 'অ্যাকাউন্ট ফিরিয়ে দিন',
+  signOutEverywhere: 'সব ডিভাইস থেকে সাইন আউট',
+  changeRole: 'ভূমিকা বদলান',
+  reason: 'কারণ',
+  suspendTitle: 'এই অ্যাকাউন্ট স্থগিত করবেন?',
+  suspendedReason: 'কারণ',
+  confirm: 'নিশ্চিত করুন',
+  cancel: 'বাতিল',
+  done: 'হয়ে গেছে',
+  signOutDone: '{n}টি ডিভাইস থেকে সাইন আউট হয়েছে',
+  open: 'খোলা',
+  closed: 'বন্ধ',
+  noReports: 'কোনো রিপোর্ট নেই',
+  reportedBy: 'রিপোর্ট করেছেন',
+  reasons: { spam: 'স্প্যাম', harassment: 'হয়রানি', impersonation: 'ছদ্মবেশ', inappropriate: 'অনুপযুক্ত কনটেন্ট', other: 'অন্যান্য' },
+  reportStatus: { open: 'খোলা', reviewing: 'পর্যালোচনায়', actioned: 'ব্যবস্থা নেওয়া হয়েছে', dismissed: 'খারিজ' },
+  review: 'পর্যালোচনা শুরু',
+  dismiss: 'খারিজ করুন',
+  takeAction: 'ব্যবস্থা নিন',
+  reopen: 'আবার খুলুন',
+  resolution: 'নোট',
+  suspendTarget: 'এই ব্যক্তিকেও স্থগিত করুন',
+  openReportsAbout: '{n}টি খোলা রিপোর্ট',
+  group: 'গ্রুপ',
+  members: '{n} জন সদস্য',
+  meeting: 'মিটিং',
+  viewPerson: 'দেখুন',
+  noAudit: 'এখনো কিছু নেই',
+  actions: {
+    'user.suspend': 'স্থগিত করেছেন',
+    'user.restore': 'ফিরিয়ে দিয়েছেন',
+    'user.sign_out': 'সব ডিভাইস থেকে সাইন আউট করেছেন',
+    'user.role': 'ভূমিকা বদলেছেন',
+    'report.reviewing': 'একটি রিপোর্ট পর্যালোচনা শুরু করেছেন',
+    'report.actioned': 'ব্যবস্থা নিয়ে একটি রিপোর্ট বন্ধ করেছেন',
+    'report.dismissed': 'একটি রিপোর্ট খারিজ করেছেন',
+    'report.open': 'একটি রিপোর্ট আবার খুলেছেন',
+  },
+  failed: 'কিছু একটা সমস্যা হয়েছে। আবার চেষ্টা করুন।',
+};
+
+export const adminStrings = (locale: Locale): Strings => (locale === 'bn' ? bn : en);
+
+const tag = (locale: Locale) => (locale === 'bn' ? 'bn-BD' : 'en-GB');
+
+export const formatNumber = (value: number, locale: Locale) => new Intl.NumberFormat(tag(locale)).format(value);
+
+export const formatDate = (iso: string | null, locale: Locale, withTime = false) =>
+  iso
+    ? new Intl.DateTimeFormat(tag(locale), { day: 'numeric', month: 'short', year: 'numeric', ...(withTime ? { hour: 'numeric', minute: '2-digit' } : {}) }).format(new Date(iso))
+    : '—';
+
+export function formatBytes(bytes: number, locale: Locale): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${new Intl.NumberFormat(tag(locale), { maximumFractionDigits: value < 10 && unit ? 1 : 0 }).format(value)} ${units[unit]}`;
+}
+
+/** "3 hours ago" style, for last-active columns. */
+export function ago(iso: string | null, locale: Locale): string | null {
+  if (!iso) return null;
+  const seconds = Math.round((new Date(iso).getTime() - Date.now()) / 1000);
+  const rtf = new Intl.RelativeTimeFormat(tag(locale), { numeric: 'auto' });
+  const steps: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ['second', 60],
+    ['minute', 60],
+    ['hour', 24],
+    ['day', 30],
+    ['month', 12],
+    ['year', Infinity],
+  ];
+  let value = seconds;
+  for (const [unit, size] of steps) {
+    if (Math.abs(value) < size) return rtf.format(Math.round(value), unit);
+    value /= size;
+  }
+  return null;
+}

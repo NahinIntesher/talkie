@@ -1,0 +1,20 @@
+{
+  "name": "@talkie/auth-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.5",
+    "@talkie/auth-kit": "*",
+    "@talkie/bus": "*",
+    "@talkie/contracts": "*",
+    "@talkie/core": "*",
+    "@talkie/db": "*",
+    "jose": "^6.2.18",
+    "zod": "^4.6.7"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "@talkie/bus",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@talkie/core": "*", "@talkie/db": "*", "ioredis": "^5.8.0" }
+}

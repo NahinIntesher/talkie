@@ -1,0 +1,19 @@
+{
+  "name": "@talkie/realtime-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
+    "@talkie/auth-kit": "*",
+    "@talkie/bus": "*",
+    "@talkie/core": "*",
+    "ioredis": "^5.8.0",
+    "socket.io": "^4.8.4",
+    "zod": "^4.6.7"
+  }
+}

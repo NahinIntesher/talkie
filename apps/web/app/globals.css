@@ -1,0 +1,191 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* ───────── Design tokens ─────────
+   One palette, two themes. Components use semantic names (surface, text-muted…) never raw colours,
+   so light and dark stay consistent and contrast stays at WCAG AA or better. */
+:root {
+  --bg: #f6f7fb;
+  --bg-glow-1: rgba(91, 91, 247, 0.16);
+  --bg-glow-2: rgba(236, 72, 153, 0.1);
+  --surface: #ffffff;
+  --surface-2: #f1f3f9;
+  --surface-3: #e7eaf3;
+  --elevated: rgba(255, 255, 255, 0.78);
+  --border: #e3e6ef;
+  --border-strong: #cfd4e2;
+  --text: #0e1222;
+  --text-muted: #4a5170;
+  --text-subtle: #737a96;
+  --brand: #5b5bf7;
+  --brand-strong: #4338ca;
+  --brand-2: #8b5cf6;
+  --accent: #ec4899;
+  --brand-soft: #eef0ff;
+  --on-brand: #ffffff;
+  --success: #12a150;
+  --success-soft: #e7f7ee;
+  --danger: #dc2645;
+  --danger-soft: #fdecef;
+  --warning: #c27803;
+  --ring: rgba(91, 91, 247, 0.45);
+  --bubble-out: #5b5bf7;
+  --bubble-out-text: #ffffff;
+  --bubble-out-meta: rgba(255, 255, 255, 0.78);
+  --wallpaper: #eceef6;
+  --wallpaper-dot: rgba(91, 91, 247, 0.07);
+  --shadow-sm: 0 1px 2px rgba(14, 18, 34, 0.06), 0 1px 1px rgba(14, 18, 34, 0.04);
+  --shadow-md: 0 8px 24px -8px rgba(14, 18, 34, 0.14), 0 2px 6px rgba(14, 18, 34, 0.05);
+  --shadow-lg: 0 30px 60px -20px rgba(30, 27, 75, 0.28), 0 10px 24px -12px rgba(14, 18, 34, 0.12);
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --bg: #080a14;
+  --bg-glow-1: rgba(91, 91, 247, 0.22);
+  --bg-glow-2: rgba(236, 72, 153, 0.12);
+  --surface: #10131f;
+  --surface-2: #161a29;
+  --surface-3: #1e2335;
+  --elevated: rgba(19, 23, 37, 0.78);
+  --border: #232840;
+  --border-strong: #323956;
+  --text: #eef0f8;
+  --text-muted: #a9b0cc;
+  --text-subtle: #7f87a6;
+  --brand: #7c7cff;
+  --brand-strong: #a5a8ff;
+  --brand-2: #a78bfa;
+  --accent: #f472b6;
+  --brand-soft: #1b1d3d;
+  --on-brand: #ffffff;
+  --success: #34d27b;
+  --success-soft: #0f2a1c;
+  --danger: #ff5c7a;
+  --danger-soft: #2f1219;
+  --warning: #f5b544;
+  --ring: rgba(124, 124, 255, 0.55);
+  --bubble-out: #4f46e5;
+  --bubble-out-text: #ffffff;
+  --bubble-out-meta: rgba(255, 255, 255, 0.72);
+  --wallpaper: #0b0e19;
+  --wallpaper-dot: rgba(124, 124, 255, 0.06);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 30px 70px -20px rgba(0, 0, 0, 0.75);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-elevated: var(--elevated);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-subtle: var(--text-subtle);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-2: var(--brand-2);
+  --color-accent: var(--accent);
+  --color-brand-soft: var(--brand-soft);
+  --color-on-brand: var(--on-brand);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --font-sans: var(--font-latin), var(--font-bangla), ui-sans-serif, system-ui, sans-serif;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
+  --radius-3xl: 26px;
+  --shadow-soft: var(--shadow-sm);
+  --shadow-card: var(--shadow-md);
+  --shadow-float: var(--shadow-lg);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--brand) 28%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+  button,
+  [role='button'] {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(110deg, var(--brand) 0%, var(--brand-2) 45%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .bg-brand-gradient {
+    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 55%, var(--accent) 130%);
+  }
+  .glass {
+    background: var(--elevated);
+    backdrop-filter: saturate(180%) blur(18px);
+    -webkit-backdrop-filter: saturate(180%) blur(18px);
+  }
+  .ambient {
+    background:
+      radial-gradient(60rem 40rem at 10% -10%, var(--bg-glow-1), transparent 60%),
+      radial-gradient(50rem 36rem at 110% 10%, var(--bg-glow-2), transparent 60%),
+      var(--bg);
+  }
+  .grid-fade {
+    background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--border) 70%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, var(--border) 70%, transparent) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+  }
+  .chat-wallpaper {
+    background-color: var(--wallpaper);
+    background-image: radial-gradient(var(--wallpaper-dot) 1.2px, transparent 1.2px), radial-gradient(var(--wallpaper-dot) 1.2px, transparent 1.2px);
+    background-size: 26px 26px;
+    background-position: 0 0, 13px 13px;
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
