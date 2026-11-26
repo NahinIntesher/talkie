@@ -753,6 +753,17 @@ function createLiveKit(env2, log) {
   return {
     configured,
     url: env2.LIVEKIT_URL ?? "",
+    /** Install check: are the URL, key and secret accepted by the media server? Never returns secrets. */
+    async check() {
+      if (!configured) return "not configured";
+      try {
+        await Promise.race([rooms.listRooms(), new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), 6e3))]);
+        return "ok";
+      } catch (error) {
+        const message = String(error?.message ?? error);
+        return /401|unauthor|invalid/i.test(message) ? "rejected: wrong LIVEKIT_API_KEY or LIVEKIT_API_SECRET" : `unreachable: ${message.slice(0, 120)}`;
+      }
+    },
     async token(input) {
       require2();
       const token = new AccessToken(env2.LIVEKIT_API_KEY, env2.LIVEKIT_API_SECRET, {
@@ -2067,6 +2078,7 @@ var ctx = { db, ids, relay, guards, lk, env, services: services(env) };
 var calls = registerCallRoutes(service.app, ctx);
 registerMeetingRoutes(service.app, ctx, { callRoomFinished: calls.roomFinished });
 registerAdminRoutes(service.app, ctx);
+service.app.get("/internal/selfcheck", { preHandler: guards.requireInternal }, async () => ({ livekit: await lk.check() }));
 service.app.get("/meet/config", { preHandler: guards.requireAuth }, async () => ({ enabled: lk.configured, recording: lk.recordingAvailable }));
 var sweep = setInterval(() => {
   calls.sweep().catch((error) => service.log.error({ err: error }, "call sweep failed"));

@@ -878,6 +878,15 @@ function createFcm(account2, log) {
   };
   return {
     projectId: account2.project_id,
+    /** Install check: does Google accept the service-account key? */
+    async check() {
+      try {
+        await accessToken();
+        return "ok";
+      } catch (error) {
+        return `rejected: ${String(error?.message ?? error).slice(0, 120)}`;
+      }
+    },
     async send(deviceToken, message) {
       const payload = {
         message: {
@@ -959,7 +968,7 @@ var words = {
     groupCall: "\u0997\u09CD\u09B0\u09C1\u09AA \u0995\u09B2"
   }
 };
-function pushHandlers({ origin, db: db2, fcm, log, profiles }) {
+function pushHandlers({ origin, db: db2, fcm: fcm2, log, profiles }) {
   const placeholders = (list) => list.map(() => "?").join(",");
   const preferences = async (userIds) => {
     const rows = await db2.query(`SELECT * FROM notification_preferences WHERE user_id IN (${placeholders(userIds)})`, userIds);
@@ -976,7 +985,7 @@ function pushHandlers({ origin, db: db2, fcm, log, profiles }) {
       tokens.map(async (row) => {
         const message = build(row.user_id);
         if (!message) return;
-        const result = await fcm.send(row.token, message);
+        const result = await fcm2.send(row.token, message);
         if (result === "invalid_token") await db2.run("DELETE FROM push_tokens WHERE device_id = ? AND token = ?", [row.device_id, row.token]);
       })
     );
@@ -1102,9 +1111,9 @@ service.app.put("/notify/push-token", { preHandler: guards.requireAuth }, async 
 });
 var bus = createBus(env, service.log, "notify");
 var account = loadServiceAccount(env);
-if (!account) service.log.warn("FIREBASE_SERVICE_ACCOUNT is not set: push notifications are off");
+var fcm = account ? createFcm(account, service.log) : null;
+if (!fcm) service.log.warn("FIREBASE_SERVICE_ACCOUNT is not set: push notifications are off");
 else {
-  const fcm = createFcm(account, service.log);
   const push = pushHandlers({
     origin: env.PUBLIC_ORIGIN.replace(/\/$/, ""),
     db,
@@ -1128,6 +1137,18 @@ else {
   });
   service.log.info({ project: fcm.projectId }, "push notifications on");
 }
+service.app.get("/internal/selfcheck", { preHandler: guards.requireInternal }, async () => {
+  let email2 = "not configured";
+  if (mailer) {
+    try {
+      await mailer.verify();
+      email2 = "ok";
+    } catch (error) {
+      email2 = `rejected: ${String(error?.message ?? error).slice(0, 120)}`;
+    }
+  }
+  return { email: email2, push: fcm ? await fcm.check() : "not configured" };
+});
 service.app.delete("/notify/push-token", { preHandler: guards.requireAuth }, async (request) => {
   await db.run("DELETE FROM push_tokens WHERE device_id = ?", [caller(request).deviceId]);
   return { ok: true };
