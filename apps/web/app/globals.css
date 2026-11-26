@@ -31,7 +31,9 @@
   --danger: #dc2645;
   --danger-soft: #fdecef;
   --warning: #c27803;
-  --ring: rgba(217, 119, 6, 0.45);
+  --ring: rgba(217, 119, 6, 0.4);
+  /* Text fields: a hairline border and a faint glow (keyboard focus on buttons keeps --ring). */
+  --ring-soft: rgba(217, 119, 6, 0.13);
   --bubble-out: #fbbf24;
   --bubble-out-text: #2a1700;
   --bubble-out-meta: rgba(42, 23, 0, 0.62);
@@ -77,7 +79,8 @@
   --danger: #ff5c7a;
   --danger-soft: #2f1219;
   --warning: #f5b544;
-  --ring: rgba(251, 191, 36, 0.5);
+  --ring: rgba(251, 191, 36, 0.45);
+  --ring-soft: rgba(251, 191, 36, 0.14);
   --bubble-out: #b45309;
   --bubble-out-text: #ffffff;
   --bubble-out-meta: rgba(255, 255, 255, 0.75);

@@ -28,20 +28,21 @@ export default function SettingsPage() {
     <div className="flex h-full flex-col md:flex-row">
       <aside className="border-b border-border bg-surface md:w-[300px] md:border-r md:border-b-0">
         <h1 className="px-5 pt-5 pb-3 text-2xl font-extrabold tracking-tight">{t.settings.title}</h1>
-        <nav className="scrollbar-thin flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:overflow-visible [mask-image:linear-gradient(to_right,black_88%,transparent)] md:[mask-image:none]" aria-label={t.settings.title}>
+        {/* Phones: every section visible at once (2 × 2); wider screens: a side list. */}
+        <nav className="grid grid-cols-2 gap-1 px-3 pb-3 md:flex md:flex-col" aria-label={t.settings.title}>
           {sections.map((item) => (
             <button
               key={item.id}
               onClick={() => setSection(item.id)}
               aria-current={section === item.id ? 'page' : undefined}
               className={clsx(
-                'relative flex shrink-0 items-center gap-3 rounded-2xl px-4 py-3 text-left text-[0.95rem] font-semibold transition-colors',
+                'relative flex min-w-0 items-center gap-2 rounded-2xl px-2.5 py-3 text-left text-[0.84rem] font-semibold transition-colors md:gap-3 md:px-4 md:text-[0.95rem]',
                 section === item.id ? 'text-brand' : 'text-muted hover:bg-surface-2 hover:text-text',
               )}
             >
               {section === item.id && <motion.span layoutId="settings-active" className="absolute inset-0 rounded-2xl bg-brand-soft" />}
-              <item.icon className="relative size-5" aria-hidden />
-              <span className="relative">{item.label}</span>
+              <item.icon className="relative size-5 shrink-0" aria-hidden />
+              <span className="relative truncate">{item.label}</span>
             </button>
           ))}
         </nav>
@@ -102,7 +103,7 @@ function ProfileSection() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-5">
-        <label className="group relative cursor-pointer rounded-full focus-within:ring-4 focus-within:ring-[var(--ring)]" aria-label={locale === 'bn' ? 'প্রোফাইল ছবি বদলান' : 'Change profile photo'}>
+        <label className="group relative cursor-pointer rounded-full focus-within:ring-2 focus-within:ring-[var(--ring-soft)]" aria-label={locale === 'bn' ? 'প্রোফাইল ছবি বদলান' : 'Change profile photo'}>
           <Avatar name={name || user.displayName} src={user.avatarUrl} size={88} className="shadow-card ring-4 ring-surface" />
           <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 text-white opacity-0 transition-opacity group-hover:opacity-100">
             {photoBusy ? <Loader2 className="size-6 animate-spin" /> : <Camera className="size-6" />}

@@ -87,7 +87,7 @@ export function ReportDialog({ open, onClose, userId, name, onBlocked }: { open:
           rows={3}
           placeholder={s.note}
           aria-label={s.note}
-          className="w-full resize-none rounded-2xl border border-border-strong bg-surface px-4 py-3 outline-none placeholder:text-subtle focus:border-brand focus:ring-4 focus:ring-[var(--ring)]"
+          className="w-full resize-none rounded-2xl border border-border-strong bg-surface px-4 py-3 outline-none placeholder:text-subtle focus:border-brand/60 focus:ring-2 focus:ring-[var(--ring-soft)]"
         />
         <div className="flex items-center justify-between gap-3">
           <span className="font-semibold">{s.block}</span>

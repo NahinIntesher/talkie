@@ -328,7 +328,7 @@ export function InfoPanel({ conversationId, onClose, onLeft }: { conversationId:
           <TextField label={s.groupName} value={name} maxLength={100} onChange={(e) => setName(e.target.value)} />
           <label className="block space-y-1.5">
             <span className="text-sm font-semibold">{locale === 'bn' ? 'বিবরণ' : 'Description'}</span>
-            <textarea value={description} maxLength={2048} rows={4} onChange={(e) => setDescription(e.target.value)} className="w-full resize-none rounded-2xl border border-border-strong bg-surface px-4 py-3 outline-none focus:border-brand focus:ring-4 focus:ring-[var(--ring)]" />
+            <textarea value={description} maxLength={2048} rows={4} onChange={(e) => setDescription(e.target.value)} className="w-full resize-none rounded-2xl border border-border-strong bg-surface px-4 py-3 outline-none focus:border-brand/60 focus:ring-2 focus:ring-[var(--ring-soft)]" />
           </label>
           <Button type="submit" block disabled={!name.trim()}>
             {locale === 'bn' ? 'সংরক্ষণ করুন' : 'Save'}

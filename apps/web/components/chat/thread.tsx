@@ -227,7 +227,21 @@ export function Thread({ conversationId, onBack, onInfo }: { conversationId: str
             { label: conversation.kind === 'group' ? s.groupInfo : s.contactInfo, icon: <Users />, onSelect: onInfo },
             { label: muted ? s.unmute : s.mute, icon: muted ? <BellRing /> : <BellOff />, onSelect: () => void engine.updateSettings(conversationId, { mutedUntil: muted ? null : new Date(Date.now() + 8 * 3600_000).toISOString() }).catch(fail) },
             { label: conversation.pinned ? s.unpinChat : s.pinChat, icon: conversation.pinned ? <PinOff /> : <Pin />, onSelect: () => void engine.updateSettings(conversationId, { pinned: !conversation.pinned }).catch(fail) },
-            { label: conversation.archived ? s.unarchive : s.archive, icon: <Archive />, onSelect: () => void engine.updateSettings(conversationId, { archived: !conversation.archived }).then(() => !conversation.archived && onBack()).catch(fail) },
+            {
+              label: conversation.archived ? s.unarchive : s.archive,
+              icon: <Archive />,
+              onSelect: () => {
+                const archiving = !conversation.archived;
+                void engine
+                  .updateSettings(conversationId, { archived: archiving })
+                  .then(() => {
+                    if (!archiving) return;
+                    onBack();
+                    toast(s.chatArchived, 'success', { label: s.undo, onClick: () => void engine.updateSettings(conversationId, { archived: false }).catch(fail) });
+                  })
+                  .catch(fail);
+              },
+            },
             { label: s.markUnread, icon: <MailOpen />, onSelect: () => void engine.updateSettings(conversationId, { markedUnread: true }).then(onBack).catch(fail) },
             {
               label: s.clear,
@@ -381,7 +395,16 @@ export function Thread({ conversationId, onBack, onInfo }: { conversationId: str
               block
               onClick={() => {
                 if (deleting.local) useChat.setState((st) => ({ threads: { ...st.threads, [conversationId]: { ...st.threads[conversationId]!, items: st.threads[conversationId]!.items.filter((m) => m.id !== deleting.id) } } }));
-                else void engine.deleteMessage(conversationId, deleting.id, 'me').catch(fail);
+                else {
+                  // Gone from the screen at once; the server is asked only after the Undo window (easy reversal).
+                  const id = deleting.id;
+                  const restore = engine.hideMessageLocally(conversationId, id);
+                  let undone = false;
+                  toast(s.messageDeleted, 'info', { label: s.undo, onClick: () => ((undone = true), restore()) });
+                  setTimeout(() => {
+                    if (!undone) void engine.deleteMessage(conversationId, id, 'me').catch((error) => (restore(), fail(error)));
+                  }, 5500);
+                }
                 setDeleting(null);
               }}
             >

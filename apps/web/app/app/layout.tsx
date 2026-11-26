@@ -15,6 +15,7 @@ import { CallOverlay } from '@/components/call/call-overlay';
 import { bindCalls, unbindCalls } from '@/lib/call/engine';
 import { registerWebPush } from '@/lib/push';
 import { adminStrings } from '@/lib/admin/strings';
+import { Shortcuts } from '@/components/ui/shortcuts';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { status, user, signOut } = useSession();
@@ -89,6 +90,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </nav>
       <div className="min-h-0 min-w-0 flex-1">{children}</div>
       <CallOverlay />
+      <Shortcuts />
     </div>
   );
 }

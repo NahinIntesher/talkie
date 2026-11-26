@@ -138,7 +138,7 @@ export const MessageBubble = memo(function MessageBubble({
             emojiOnly && '!bg-transparent px-1 !shadow-none',
             mine ? 'bg-[var(--bubble-out)] text-[var(--bubble-out-text)]' : 'bg-surface text-text',
             mine ? (lastOfRun ? 'rounded-2xl rounded-br-md' : 'rounded-2xl rounded-r-md') : lastOfRun ? 'rounded-2xl rounded-bl-md' : 'rounded-2xl rounded-l-md',
-            highlighted && 'ring-4 ring-[var(--ring)]',
+            highlighted && 'ring-2 ring-[var(--ring)]',
             message.local === 'failed' && 'ring-2 ring-danger/60',
           )}
         >

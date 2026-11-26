@@ -62,7 +62,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       aria-busy={loading || undefined}
       className={clsx(
         'relative inline-flex select-none items-center justify-center font-semibold whitespace-nowrap transition-all duration-200 ease-out',
-        'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--ring)] disabled:opacity-55 disabled:shadow-none',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] disabled:opacity-55 disabled:shadow-none',
         variants[variant],
         sizes[size],
         block && 'w-full',
@@ -84,7 +84,7 @@ export function IconButton({ label, className, children, ...rest }: ButtonHTMLAt
       title={label}
       className={clsx(
         'inline-flex size-10 items-center justify-center rounded-xl text-muted transition-colors hover:bg-surface-2 hover:text-text',
-        'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--ring)]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
         className,
       )}
       {...rest}
@@ -119,10 +119,10 @@ export const TextField = forwardRef<HTMLInputElement, FieldProps>(function TextF
       <div
         className={clsx(
           'group flex h-12 items-center gap-2.5 rounded-2xl border bg-surface px-4 transition-all duration-200',
-          'focus-within:ring-4',
+          'focus-within:ring-2',
           error
             ? 'border-danger focus-within:ring-[color-mix(in_srgb,var(--danger)_25%,transparent)]'
-            : 'border-border-strong hover:border-[color-mix(in_srgb,var(--brand)_45%,var(--border-strong))] focus-within:border-brand focus-within:ring-[var(--ring)]',
+            : 'border-border-strong hover:border-[color-mix(in_srgb,var(--brand)_45%,var(--border-strong))] focus-within:border-brand/60 focus-within:ring-[var(--ring-soft)]',
         )}
       >
         {leading && <span className="text-subtle group-focus-within:text-brand">{leading}</span>}
@@ -221,7 +221,7 @@ export function Switch({ checked, onChange, label }: { checked: boolean; onChang
       onClick={() => onChange(!checked)}
       className={clsx(
         'relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors duration-200',
-        'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--ring)]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
         checked ? 'bg-brand' : 'bg-surface-3',
       )}
     >

@@ -9,6 +9,7 @@ import { useI18n } from '@/lib/i18n';
 import { conversationTitle, nameOf, orderedConversations, useChat, type ChatState } from '@/lib/chat/store';
 import { chatStrings, listTime } from '@/lib/chat/strings';
 import { previewText } from './text';
+import { CHAT_SEARCH_ID } from '@/components/ui/shortcuts';
 
 type Filter = 'all' | 'unread' | 'groups' | 'archived';
 
@@ -47,12 +48,13 @@ export function ConversationList({ activeId, onOpen, onNewChat }: { activeId: st
       </div>
 
       <div className="px-4">
-        <label className="flex h-11 items-center gap-2.5 rounded-2xl bg-surface-2 px-4 transition focus-within:bg-surface focus-within:ring-4 focus-within:ring-[var(--ring)]">
+        <label className="flex h-11 items-center gap-2.5 rounded-2xl bg-surface-2 px-4 transition focus-within:bg-surface focus-within:ring-2 focus-within:ring-[var(--ring-soft)]">
           <Search className="size-[1.1rem] text-subtle" aria-hidden />
           <span className="sr-only">{s.searchChats}</span>
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            id={CHAT_SEARCH_ID}
             placeholder={t.app.search}
             autoCapitalize="none"
             spellCheck={false}

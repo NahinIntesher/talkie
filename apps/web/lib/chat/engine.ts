@@ -365,6 +365,27 @@ export async function editText(conversationId: string, messageId: string, text: 
   upsertMessage(conversationId, { ...message, body });
 }
 
+/**
+ * Removes a message from the screen at once and returns a function that puts it back (for Undo). The server is
+ * only asked to delete it later, when Undo is no longer possible.
+ */
+export function hideMessageLocally(conversationId: string, messageId: string): () => void {
+  const thread = get().threads[conversationId];
+  const message = thread?.items.find((m) => m.id === messageId);
+  if (!thread || !message) return () => {};
+  set((state) => {
+    const current = state.threads[conversationId];
+    return current ? { threads: { ...state.threads, [conversationId]: { ...current, items: current.items.filter((m) => m.id !== messageId) } } } : {};
+  });
+  return () =>
+    set((state) => {
+      const current = state.threads[conversationId];
+      if (!current || current.items.some((m) => m.id === messageId)) return {};
+      const items = [...current.items, message].sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+      return { threads: { ...state.threads, [conversationId]: { ...current, items } } };
+    });
+}
+
 export async function deleteMessage(conversationId: string, messageId: string, scope: 'me' | 'everyone') {
   await api(`/chat/messages/${messageId}?scope=${scope}`, { method: 'DELETE' });
   if (scope === 'me')

@@ -21,6 +21,12 @@ const EMOJI = {
   things: ['☕', '🍵', '🍕', '🍔', '🍰', '🎂', '⚽', '🏏', '🎮', '🎧', '📚', '✈️', '🏕️', '🌙', '☀️', '🌧️', '🌸', '🌹'],
 };
 
+/**
+ * Unsent text per chat, kept while the tab is open, including when switching chats (the composer is recreated per
+ * chat). Memory only: drafts of end-to-end encrypted chats are never written to disk.
+ */
+const drafts = new Map<string, string>();
+
 export function Composer({
   conversationId,
   replyTo,
@@ -65,11 +71,10 @@ export function Composer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dropped]);
   const input = useRef<HTMLTextAreaElement>(null);
-  const drafts = useRef(new Map<string, string>());
 
   // Each conversation keeps its own unsent draft.
   useEffect(() => {
-    setText(drafts.current.get(conversationId) ?? '');
+    setText(drafts.get(conversationId) ?? '');
     setEmoji(false);
     input.current?.focus();
   }, [conversationId]);
@@ -95,7 +100,7 @@ export function Composer({
 
   const update = (value: string) => {
     setText(value);
-    if (!editing) drafts.current.set(conversationId, value);
+    if (!editing) drafts.set(conversationId, value);
     setTyping(conversationId, value.trim().length > 0);
   };
 
@@ -106,7 +111,7 @@ export function Composer({
     if (editing) onSaveEdit(value);
     else onSend(value);
     setText('');
-    drafts.current.delete(conversationId);
+    drafts.delete(conversationId);
     setTyping(conversationId, false);
     setEmoji(false);
   };
@@ -130,7 +135,7 @@ export function Composer({
                 onClick={() => {
                   if (editing) {
                     onCancelEdit();
-                    setText(drafts.current.get(conversationId) ?? '');
+                    setText(drafts.get(conversationId) ?? '');
                   } else onCancelReply();
                 }}
                 aria-label={s.cancel}
@@ -211,7 +216,7 @@ export function Composer({
           />
         ) : (
           <>
-            <div className="flex min-h-12 flex-1 items-end gap-1 rounded-[1.5rem] border border-border bg-surface-2 px-2 py-1.5 transition focus-within:border-brand focus-within:bg-surface focus-within:ring-4 focus-within:ring-[var(--ring)]">
+            <div className="flex min-h-12 flex-1 items-end gap-1 rounded-[1.5rem] border border-border bg-surface-2 px-2 py-1.5 transition focus-within:border-brand/60 focus-within:bg-surface focus-within:ring-2 focus-within:ring-[var(--ring-soft)]">
               <button onClick={() => setEmoji((v) => !v)} aria-label="Emoji" aria-pressed={emoji} className={clsx('inline-flex size-9 shrink-0 items-center justify-center rounded-full transition-colors', emoji ? 'text-brand' : 'text-muted hover:text-text')}>
                 <Smile className="size-[1.35rem]" />
               </button>

@@ -5,6 +5,7 @@ End-to-end encrypted messaging, calls and meetings, Next.js web app, Flutter And
 - [Feature study](docs/FEATURE_STUDY.md), what Talkie does, by priority
 - [Architecture](docs/ARCHITECTURE.md), services, security, database, performance, phases
 - [Databases](database/README.md), one MySQL database per service
+- [Design principles](docs/DESIGN.md), Shneiderman's 8 golden rules and the other rules every screen follows
 - [Deploying](docs/DEPLOY.md), VPS setup, first deploy, updates, backups, Android release build
 
 ## Run locally (Windows)
