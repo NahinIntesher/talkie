@@ -181,7 +181,22 @@ The upload holds:
 9. In LiveKit Cloud → Settings → Webhooks, add `https://talkie.kodofact.com/api/meet/livekit/webhook`.
 
 ### Updating
-**Recommended: the Linux build from GitHub.** Every push to `main` builds the upload on Linux, the same OS as the server:
+**Easiest: `git pull` (once set up).** Every push to `main` is built on Linux by GitHub Actions and committed to the `cpanel` branch, ready to run.
+
+One-time setup, in cPanel → Terminal, inside the app folder:
+```bash
+git init && git remote add origin https://github.com/NahinIntesher/talkie.git
+bash -c "git fetch origin cpanel && git reset --hard origin/cpanel"
+```
+
+Every update after that:
+```bash
+bash update.sh
+```
+
+`update.sh` pulls the branch, runs `npm install` only when `package.json` changed, and restarts the app. `.env`, `secrets/`, `node_modules/` and `data/` are git-ignored there, so updates never touch them.
+
+**Without git: the Linux build as a download.** Every push to `main` builds the upload on Linux, the same OS as the server:
 1. Open GitHub → **Actions** → **cPanel build** → the latest green run → **Artifacts** → `talkie-cpanel`.
 2. Download it. It's a zip of the app folder.
 3. Upload it to the app folder in cPanel and **Extract**.

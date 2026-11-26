@@ -66,6 +66,7 @@ step('Assembling build/cpanel');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 cpSync(join(root, 'infra', 'cpanel', 'app.cjs'), join(out, 'app.cjs'));
+cpSync(join(root, 'infra', 'cpanel', 'update.sh'), join(out, 'update.sh'));
 cpSync(join(root, 'build', 'migrate.mjs'), join(out, 'migrate.mjs'));
 cpSync(join(root, 'database'), join(out, 'database'), { recursive: true, filter: (path) => !path.endsWith('README.md') });
 for (const name of services) {
