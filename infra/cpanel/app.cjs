@@ -1,9 +1,11 @@
 // Talkie on cPanel → "Setup Node.js App" (Phusion Passenger or LiteSpeed). Application startup file: app.cjs
 //
-// One Node.js process runs everything that the Docker setup spreads over containers:
-//   • a small gateway on the port cPanel gives the app (it does nginx's job: /api/<service>/… and /ws routing),
-//   • the eight Talkie services, each on its own 127.0.0.1 port inside this process,
-//   • the Next.js web app as one child process.
+// Runs everything that the Docker setup spreads over containers, as three Node.js processes:
+//   • this process: a small gateway on the port cPanel gives the app (nginx's job: /api/<service>/… and /ws routing),
+//   • child "services": the eight Talkie services, each on its own 127.0.0.1 port,
+//   • child "web": the Next.js web app.
+// The children are separate processes because LiteSpeed (lsnode) hooks http.Server.listen in the app's own process and
+// ignores every listen() after the first one; each child exits when this process goes away (e.g. LiteSpeed idles it).
 // Events between services travel in memory (BUS_DRIVER=process); the database is cPanel's MySQL/MariaDB.
 // Built by `npm run build:cpanel` (see docs/DEPLOY.md → "cPanel").
 'use strict';
@@ -18,6 +20,7 @@ const { pathToFileURL } = require('node:url');
 const ROOT = __dirname;
 const started = Date.now();
 const log = (...parts) => console.log(new Date().toISOString(), '[talkie]', ...parts);
+const MODE = process.argv.includes('--talkie-services') ? 'services' : process.argv.includes('--talkie-web') ? 'web' : 'gateway';
 
 // ───────── Settings: .env next to this file; values set in cPanel's interface win ─────────
 (function loadEnv(file) {
@@ -133,36 +136,54 @@ gateway.on('upgrade', (req, socket, head) => {
 gateway.keepAliveTimeout = 65_000;
 
 // Passenger hands the app its socket through the first listen() call; this must happen before anything else listens.
-if (typeof PhusionPassenger !== 'undefined') {
-  PhusionPassenger.configure({ autoInstall: false });
-  gateway.listen('passenger', () => log('gateway listening (Passenger)'));
-} else {
-  const publicPort = Number(process.env.PORT) || 3000;
-  gateway.listen(publicPort, () => log(`gateway listening on ${publicPort}`));
+if (MODE === 'gateway') {
+  if (typeof PhusionPassenger !== 'undefined') {
+    PhusionPassenger.configure({ autoInstall: false });
+    gateway.listen('passenger', () => log('gateway listening (Passenger)'));
+  } else {
+    const publicPort = process.env.PORT || 3000; // LiteSpeed passes a socket path here
+    gateway.listen(publicPort, () => log(`gateway listening on ${publicPort}`));
+  }
 }
 
-// ───────── Web app (Next.js standalone) ─────────
+// ───────── Child processes (started by the gateway) ─────────
 let stopping = false;
-function startWeb() {
-  const server = path.join(ROOT, 'web', 'apps', 'web', 'server.js');
-  if (!fs.existsSync(server)) return log('web app missing: run `npm run build:cpanel` and upload again');
-  const child = spawn(process.execPath, [server], {
-    cwd: path.dirname(server),
-    env: { ...process.env, NODE_ENV: 'production', PORT: String(port.web), HOSTNAME: '127.0.0.1', NEXT_TELEMETRY_DISABLED: '1' },
-    stdio: 'inherit',
-  });
-  child.on('exit', (code) => {
-    if (stopping) return;
-    log(`web app exited (${code}); restarting in 2 s`);
-    setTimeout(startWeb, 2000);
-  });
-  process.on('exit', () => child.kill());
+const children = new Set();
+
+/** The app's settings for a child, without any loader hook the host injected into this process. */
+function childEnv(extra) {
+  const env = { ...process.env, ...extra };
+  if (env.NODE_OPTIONS && /lsnode|lsapi/i.test(env.NODE_OPTIONS)) delete env.NODE_OPTIONS;
+  return env;
 }
 
-// ───────── Services ─────────
-async function main() {
-  startWeb();
+/** Starts a child (this file in another mode) and restarts it if it stops. */
+function keep(name, mode, env) {
+  if (stopping) return;
+  // The IPC channel lets the child notice when this process is gone, so it never outlives it holding the ports.
+  const child = spawn(process.execPath, [__filename, mode], { cwd: ROOT, env, stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
+  children.add(child);
+  child.on('exit', (code, signal) => {
+    children.delete(child);
+    if (stopping) return;
+    log(`${name} stopped (${code ?? signal}); restarting in 2 s`);
+    setTimeout(() => keep(name, mode, env), 2000);
+  });
+}
 
+function stopChildren() {
+  stopping = true;
+  for (const child of children) child.kill('SIGTERM');
+}
+
+/** In a child: leave when the gateway process is gone. */
+function followParent() {
+  process.on('disconnect', () => process.exit(0));
+}
+
+// ───────── Services (child) ─────────
+async function runServices() {
+  followParent();
   if (process.env.RUN_MIGRATIONS !== 'false') {
     try {
       const { runMigrations } = await import(pathToFileURL(path.join(ROOT, 'migrate.mjs')).href);
@@ -172,7 +193,6 @@ async function main() {
       log('database migration failed — check DB_* settings:', error && error.message);
     }
   }
-
   // Each service reads its settings while it loads, so the per-service values are set just before its import.
   for (const [name, , worker] of SERVICES) {
     Object.assign(process.env, shared, { PORT: String(port[name]), WORKER_ID: String(worker) });
@@ -186,8 +206,31 @@ async function main() {
   log(`all services started in ${((Date.now() - started) / 1000).toFixed(1)} s`);
 }
 
-process.on('SIGTERM', () => (stopping = true));
-process.on('SIGINT', () => (stopping = true));
+// ───────── Web app (child) ─────────
+function runWeb() {
+  followParent();
+  const server = path.join(ROOT, 'web', 'apps', 'web', 'server.js');
+  if (!fs.existsSync(server)) {
+    log('web app missing: run `npm run build:cpanel` and upload again');
+    return;
+  }
+  process.chdir(path.dirname(server));
+  // Next.js standalone server (an ES module here): reads PORT / HOSTNAME.
+  import(pathToFileURL(server).href).catch((error) => {
+    log('web app failed:', error && (error.stack || error.message));
+    process.exit(1);
+  });
+}
+
 process.on('unhandledRejection', (error) => log('unhandled rejection:', error && (error.stack || error)));
 
-main().catch((error) => log('startup failed:', error && (error.stack || error)));
+if (MODE === 'services') {
+  runServices().catch((error) => log('services failed:', error && (error.stack || error)));
+} else if (MODE === 'web') {
+  runWeb();
+} else {
+  keep('web app', '--talkie-web', childEnv({ NODE_ENV: 'production', PORT: String(port.web), HOSTNAME: '127.0.0.1', NEXT_TELEMETRY_DISABLED: '1' }));
+  keep('services', '--talkie-services', childEnv({}));
+  process.on('exit', stopChildren);
+  for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => (stopChildren(), process.exit(0)));
+}

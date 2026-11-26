@@ -153,7 +153,12 @@ Without `key.properties`, release builds are signed with the debug key. That is 
 ## 8. cPanel (Setup Node.js App)
 
 The upload holds:
-- `app.cjs`: one entry file. It starts a small gateway on the app's port (doing nginx's job), the eight services on `127.0.0.1` inside the same process, and the Next.js web app as a child process.
+- `app.cjs`: one entry file, running three processes:
+  - **The gateway:** listens on the app's port and does nginx's job.
+  - **A child process:** runs the eight services on `127.0.0.1`.
+  - **A second child process:** runs the Next.js web app.
+- **Why child processes:** LiteSpeed (lsnode) ignores every `listen()` after the first one in the app's own process.
+- **Sleep and wake:** each child exits when the gateway goes away, so the app sleeps and wakes cleanly.
 - The tables are created or updated automatically every time the app starts.
 - Events between services are passed in memory (`BUS_DRIVER=process`).
 
