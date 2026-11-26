@@ -1250,7 +1250,9 @@ function registerConversationRoutes(app, ctx2) {
   };
   app.get("/chat/conversations", auth, async (request) => {
     const me = caller(request);
-    const rows = await db2.query(`${SUMMARY_SQL} WHERE cm.user_id = ? ORDER BY COALESCE(last_message_id, 0) DESC, c.id DESC LIMIT 500`, [me.userId]);
+    const rows = await db2.query(`${SUMMARY_SQL} WHERE cm.user_id = ?
+         AND (cm.deleted_before_message_id = 0 OR EXISTS (SELECT 1 FROM messages d WHERE d.conversation_id = c.id AND d.id >= cm.deleted_before_message_id))
+       ORDER BY COALESCE(last_message_id, 0) DESC, c.id DESC LIMIT 500`, [me.userId]);
     return { conversations: await summaries(me.userId, me.deviceId, rows) };
   });
   app.get("/chat/conversations/:id", auth, async (request) => {
@@ -1285,7 +1287,10 @@ function registerConversationRoutes(app, ctx2) {
     if (!relationship) fail("not_found", "This person is not on Talkie.");
     const [low, high] = BigInt(me.userId) < BigInt(userId) ? [me.userId, userId] : [userId, me.userId];
     const existing = await db2.one("SELECT conversation_id FROM direct_pairs WHERE user_low = ? AND user_high = ?", [low, high]);
-    if (existing) return { conversation: await one(me.userId, me.deviceId, existing.conversation_id) };
+    if (existing) {
+      await db2.run("UPDATE conversation_members SET deleted_before_message_id = 0 WHERE conversation_id = ? AND user_id = ?", [existing.conversation_id, me.userId]);
+      return { conversation: await one(me.userId, me.deviceId, existing.conversation_id) };
+    }
     if (relationship.blocked) fail("blocked", "You cannot message this person.");
     const conversationId = ctx2.ids.next();
     try {
@@ -1581,6 +1586,25 @@ function registerConversationRoutes(app, ctx2) {
        WHERE conversation_id = ? AND user_id = ?`,
       [last, last, id2, me.userId]
     );
+    return { ok: true };
+  });
+  app.delete("/chat/conversations/:id", auth, async (request) => {
+    const me = caller(request);
+    const { id: id2 } = z4.object({ id }).parse(request.params);
+    const member = await membership(db2, id2, me.userId, false);
+    if (member.kind === "group" && !member.left_at) fail("conflict", "Exit the group before deleting it.");
+    await db2.tx(async (tx) => {
+      const latest = await tx.one("SELECT COALESCE(MAX(id), 0) AS last FROM messages WHERE conversation_id = ?", [id2]);
+      const last = latest?.last ?? "0";
+      await tx.run(
+        `UPDATE conversation_members SET cleared_before_message_id = ? + 1, deleted_before_message_id = ? + 1,
+           last_read_message_id = GREATEST(last_read_message_id, ?), pinned_at = NULL, archived_at = NULL, marked_unread = 0
+         WHERE conversation_id = ? AND user_id = ?`,
+        [last, last, last, id2, me.userId]
+      );
+      await emit(tx, ctx2, "conversation.updated", id2, [me.userId], { change: "deleted" });
+    });
+    ctx2.relay.kick();
     return { ok: true };
   });
   app.get("/internal/conversations/:id/members", { preHandler: guards2.requireInternal }, async (request) => {
