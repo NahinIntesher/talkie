@@ -26,7 +26,10 @@ const origins = new Set([env.PUBLIC_ORIGIN, ...env.CORS_ORIGINS.split(',').map((
 const io = new Server(service.app.server, {
   path: '/ws',
   serveClient: false,
-  transports: ['websocket'],
+  // WebSocket first. HTTP long-polling only as a fallback for networks or hosts that block WebSockets
+  // (it needs every request of a client on one process: fine on cPanel's single process; with several realtime
+  // replicas behind nginx, WebSocket is what clients get).
+  transports: ['websocket', 'polling'],
   maxHttpBufferSize: 16 * 1024,
   pingInterval: 20_000,
   pingTimeout: 20_000,

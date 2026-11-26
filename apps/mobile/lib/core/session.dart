@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'api.dart';
 import 'crypto.dart';
+import 'push.dart';
 
 enum SessionStatus { loading, signedOut, signedIn }
 
@@ -110,6 +111,7 @@ class Session extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    await push.unregister();
     try {
       await api.post('/auth/logout');
     } catch (_) {}

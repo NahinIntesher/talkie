@@ -6,6 +6,10 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Push notifications (Firebase): put the project's google-services.json in this folder (android/app/).
+// Without it the app builds and runs normally, just without push.
+if (file("google-services.json").exists()) apply(plugin = "com.google.gms.google-services")
+
 // Release signing key: android/key.properties (never committed) points at the upload keystore.
 // See docs/DEPLOY.md → "Android release build". Without it, release builds fall back to the debug key.
 val keyProperties = Properties().apply {
@@ -21,6 +25,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Needed by flutter_local_notifications (java.time on older Android versions).
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -65,4 +71,8 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }

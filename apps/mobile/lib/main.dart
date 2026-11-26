@@ -9,6 +9,7 @@ import 'chat/chat.dart';
 import 'status/status.dart';
 import 'core/crypto.dart';
 import 'core/prefs.dart';
+import 'core/push.dart';
 import 'core/session.dart';
 import 'screens/home.dart';
 import 'screens/signin.dart';
@@ -21,6 +22,7 @@ Future<void> main() async {
   await Future.wait([Crypto.init(), initializeDateFormatting('bn'), initializeDateFormatting('en')]);
   final prefs = Prefs();
   await prefs.load();
+  await push.init(bangla: prefs.bn);
   final session = Session();
   session.restore();
   runApp(MultiProvider(

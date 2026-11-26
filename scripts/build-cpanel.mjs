@@ -45,6 +45,12 @@ await build({
   ],
 });
 
+// Public web settings (NEXT_PUBLIC_*, e.g. the Firebase web-push key) are baked into the web build.
+for (const line of readFileSync(join(root, '.env.hosted'), 'utf8').split(/\r?\n/)) {
+  const match = /^(NEXT_PUBLIC_[A-Z0-9_]+)=(.+)$/.exec(line);
+  if (match) process.env[match[1]] = match[2].trim();
+}
+
 if (!args.has('--skip-web')) {
   step('Building the web app');
   run('npm', ['run', 'build', '-w', '@talkie/web']);

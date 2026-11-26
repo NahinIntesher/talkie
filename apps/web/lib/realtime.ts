@@ -13,7 +13,9 @@ export function connectRealtime(): Socket {
   if (socket) return socket;
   const options = {
     path: '/ws',
-    transports: ['websocket'],
+    // WebSocket first; if it cannot connect, fall back to long-polling (and upgrade later when possible).
+    transports: ['websocket', 'polling'],
+    tryAllTransports: true,
     auth: (cb: (data: object) => void) => cb({ token: tokenStore.get() }),
     reconnectionDelay: 500,
     reconnectionDelayMax: 8_000,

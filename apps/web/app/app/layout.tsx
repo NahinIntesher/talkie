@@ -13,6 +13,7 @@ import { startChat, stopChat } from '@/lib/chat/engine';
 import { useChat } from '@/lib/chat/store';
 import { CallOverlay } from '@/components/call/call-overlay';
 import { bindCalls, unbindCalls } from '@/lib/call/engine';
+import { registerWebPush } from '@/lib/push';
 import { adminStrings } from '@/lib/admin/strings';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -33,6 +34,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     if (status !== 'signed_in' || !user) return;
     void startChat(user.id)
       .then(() => bindCalls())
+      .then(() => registerWebPush())
       .catch(() => {});
     return () => {
       unbindCalls();

@@ -191,3 +191,19 @@ Keep `secrets/hosted/` on your PC. It holds the sign-in signing key, and every b
 - **Backups:** cPanel → **Backup** saves the database and the `talkie` folder, which includes the uploaded files in `talkie/data/`.
 - **Outgrowing it:** when Talkie outgrows shared hosting, move to the VPS setup (sections 1–7). The same database and `.env` values carry over.
 
+
+## 9. Push notifications (Firebase)
+
+Push notifications keep end-to-end encryption intact: a notification says who wrote and what kind of message it is (📷 Photo, 🎤 Voice message, incoming call), never the text. Muted chats, each person's notification switches and signed-out devices are respected.
+
+Everything below comes from the Firebase project (`talkie-fd138`) → **Project settings**.
+
+| What | Where in Firebase | Where it goes |
+|---|---|---|
+| Android config | **General** → Android app `com.kodofact.talkie` → `google-services.json` | `apps/mobile/android/app/google-services.json` (git-ignored). Then rebuild the app. |
+| Server key | **Service accounts** → **Generate new private key** (a JSON file) | `secrets/hosted/firebase-service-account.json`. `npm run build:cpanel` includes it. Alternatively, paste the JSON into the cPanel variable `FIREBASE_SERVICE_ACCOUNT`. |
+| Web push key | **Cloud Messaging** → **Web Push certificates** → **Generate key pair** | `.env.hosted` → `NEXT_PUBLIC_FIREBASE_VAPID_KEY=…`, then `npm run build:cpanel` |
+
+- Without the server key, the app works normally, just without push. The log says `push notifications are off`.
+- Treat the service-account key like a password: never commit it, never share it.
+- People turn notifications on in the app. On Android, permission is requested after sign-in. On the web, use the "Turn on notifications" bar.

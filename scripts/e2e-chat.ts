@@ -71,20 +71,23 @@ interface Person {
 
 async function signUp(name: string, email = `${name}.${Date.now()}@example.com`): Promise<Person> {
   const keys = e2ee.generateDeviceKeys();
-  const { body: otp } = await call('auth', '/auth/otp/request', { body: { email, locale: 'en' } });
+  const { status: otpStatus, body: otp } = await call('auth', '/auth/otp/request', { body: { email, locale: 'en' } });
+  if (!otp.challengeId) throw new Error(`code request for ${name} failed (${otpStatus}): ${JSON.stringify(otp)}`);
   const code = process.env.E2E_EXTERNAL ? process.env.DEV_FIXED_OTP : await until(() => codes.get(email));
   const device = { name: `${name}'s test device`, platform: 'android', identityKey: keys.publicKey };
   const { body: verified } = await call('auth', '/auth/otp/verify', { body: { challengeId: otp.challengeId, code, device } });
   if (verified.status === 'signed_in')
     return { name, token: verified.tokens.accessToken, userId: verified.user.id, deviceId: verified.deviceId, keys, events: [] };
   const username = `${name}_${Date.now().toString(36)}`;
-  const { body: signed } = await call('auth', '/auth/signup', { body: { signupToken: verified.signupToken, username, displayName: name, device } });
+  const { status: signedStatus, body: signed } = await call('auth', '/auth/signup', { body: { signupToken: verified.signupToken, username, displayName: name, device } });
+  if (!signed.tokens) throw new Error(`sign-up for ${name} failed (${signedStatus}): ${JSON.stringify(signed)} / verify: ${JSON.stringify(verified)}`);
   return { name, token: signed.tokens.accessToken, userId: signed.user.id, deviceId: signed.deviceId, keys, events: [] };
 }
 
 function connect(person: Person) {
   return new Promise<void>((resolveConnect, reject) => {
-    const socket = io(`http://127.0.0.1:${ports.realtime}`, { path: '/ws', transports: ['websocket'], auth: { token: person.token } });
+    // E2E_TRANSPORT=polling checks the long-polling fallback.
+    const socket = io(`http://127.0.0.1:${ports.realtime}`, { path: '/ws', transports: [process.env.E2E_TRANSPORT === 'polling' ? 'polling' : 'websocket'], auth: { token: person.token } });
     socket.onAny((event, payload) => person.events.push({ event, payload }));
     socket.on('connect', () => resolveConnect());
     socket.on('connect_error', reject);

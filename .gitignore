@@ -22,3 +22,7 @@ tools/
 apps/mobile/android/hs_err_pid*.log
 apps/mobile/android/replay_pid*.log
 /build/
+# Firebase: project config for the Android app and the server key (never committed)
+apps/mobile/android/app/google-services.json
+*firebase-adminsdk*.json
+firebase-service-account.json

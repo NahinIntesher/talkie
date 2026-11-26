@@ -56,6 +56,10 @@ const shared = {
   JWT_PRIVATE_KEY_FILE: process.env.JWT_PRIVATE_KEY_FILE || path.join(ROOT, 'secrets', 'jwt-private.pem'),
   JWT_PUBLIC_KEY_FILE: process.env.JWT_PUBLIC_KEY_FILE || path.join(ROOT, 'secrets', 'jwt-public.pem'),
   STORAGE_DIR: process.env.STORAGE_DIR || path.join(ROOT, 'data', 'media'),
+  // Push notifications: the Firebase service-account key, uploaded as secrets/firebase-service-account.json.
+  ...(!process.env.FIREBASE_SERVICE_ACCOUNT && fs.existsSync(path.join(ROOT, 'secrets', 'firebase-service-account.json'))
+    ? { FIREBASE_SERVICE_ACCOUNT_FILE: path.join(ROOT, 'secrets', 'firebase-service-account.json') }
+    : {}),
   ...Object.fromEntries(SERVICES.map(([name]) => [`${name.toUpperCase()}_URL`, `http://127.0.0.1:${port[name]}`])),
 };
 

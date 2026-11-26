@@ -13,6 +13,7 @@ import { NewChatDialog } from '@/components/chat/new-chat-dialog';
 import { useI18n } from '@/lib/i18n';
 import { useChat } from '@/lib/chat/store';
 import { openConversation } from '@/lib/chat/engine';
+import { registerWebPush } from '@/lib/push';
 
 export default function ChatsPage() {
   return (
@@ -69,7 +70,7 @@ function ChatScreen() {
                 <button
                   className="flex-1 text-left text-sm font-semibold"
                   onClick={async () => {
-                    await Notification.requestPermission();
+                    if ((await Notification.requestPermission()) === 'granted') void registerWebPush();
                     setAskNotify(false);
                   }}
                 >

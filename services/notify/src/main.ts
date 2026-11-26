@@ -2,9 +2,12 @@ import nodemailer from 'nodemailer';
 import { z } from 'zod';
 import { AppError, createService, loadConfig, Snowflake } from '@talkie/core';
 import { connectDatabase } from '@talkie/db';
+import { createBus } from '@talkie/bus';
 import { createVerifier, installAuth, caller } from '@talkie/auth-kit';
 import * as contract from '@talkie/contracts';
 import { otpEmail } from './email.ts';
+import { createFcm, loadServiceAccount } from './fcm.ts';
+import { pushHandlers } from './push.ts';
 
 const env = loadConfig({
   PORT: z.coerce.number().int().positive().default(4107),
@@ -15,6 +18,10 @@ const env = loadConfig({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   MAIL_FROM: z.string().default('Talkie <no-reply@talkie.kodofact.com>'),
+  USERS_URL: z.url().default('http://127.0.0.1:4102'),
+  /** Push notifications: a Firebase service account JSON (the JSON itself or base64 of it), or a path to the file. */
+  FIREBASE_SERVICE_ACCOUNT: z.string().optional(),
+  FIREBASE_SERVICE_ACCOUNT_FILE: z.string().optional(),
 });
 
 const db = connectDatabase(env, env.DB_NAME);
@@ -70,8 +77,70 @@ service.app.put('/notify/push-token', { preHandler: guards.requireAuth }, async 
   return { ok: true };
 });
 
+// ───────── Push notifications (Firebase Cloud Messaging) ─────────
+
+const bus = createBus(env, service.log, 'notify');
+const account = loadServiceAccount(env);
+if (!account) service.log.warn('FIREBASE_SERVICE_ACCOUNT is not set: push notifications are off');
+else {
+  const fcm = createFcm(account, service.log);
+  const push = pushHandlers({
+    origin: env.PUBLIC_ORIGIN.replace(/\/$/, ''),
+    db,
+    fcm,
+    log: service.log,
+    profiles: async (userIds) => {
+      const response = await fetch(`${env.USERS_URL}/internal/admin/profiles`, {
+        method: 'POST',
+        headers: { 'x-internal-token': env.INTERNAL_TOKEN, 'content-type': 'application/json' },
+        body: JSON.stringify({ ids: [...new Set(userIds)] }),
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!response.ok) throw new Error(`profile lookup failed (${response.status})`);
+      return ((await response.json()) as { profiles: Array<{ id: string; displayName: string; locale: 'bn' | 'en' }> }).profiles;
+    },
+  });
+  bus.subscribe('notify-push', ['message.sent', 'call.ringing', 'device.revoked'], async (event) => {
+    if (event.type === 'message.sent') await push.messageSent(event);
+    else if (event.type === 'call.ringing') await push.callRinging(event);
+    else await push.deviceRevoked(event);
+  });
+  service.log.info({ project: fcm.projectId }, 'push notifications on');
+}
+
+/** Turns push notifications off for this device (the app calls it when the person turns notifications off or signs out). */
+service.app.delete('/notify/push-token', { preHandler: guards.requireAuth }, async (request) => {
+  await db.run('DELETE FROM push_tokens WHERE device_id = ?', [caller(request).deviceId]);
+  return { ok: true };
+});
+
+/** The person's notification switches. */
+service.app.get('/notify/preferences', { preHandler: guards.requireAuth }, async (request) => {
+  const row = await db.one<{ messages: number; groups_enabled: number; calls: number; show_preview: number }>(
+    'SELECT messages, groups_enabled, calls, show_preview FROM notification_preferences WHERE user_id = ?',
+    [caller(request).userId],
+  );
+  return {
+    messages: row ? !!row.messages : true,
+    groups: row ? !!row.groups_enabled : true,
+    calls: row ? !!row.calls : true,
+    showPreview: row ? !!row.show_preview : true,
+  };
+});
+
+service.app.put('/notify/preferences', { preHandler: guards.requireAuth }, async (request) => {
+  const input = z.object({ messages: z.boolean(), groups: z.boolean(), calls: z.boolean(), showPreview: z.boolean() }).parse(request.body);
+  await db.run(
+    `INSERT INTO notification_preferences (user_id, messages, groups_enabled, calls, show_preview) VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE messages = VALUES(messages), groups_enabled = VALUES(groups_enabled), calls = VALUES(calls), show_preview = VALUES(show_preview)`,
+    [caller(request).userId, input.messages, input.groups, input.calls, input.showPreview],
+  );
+  return { ok: true };
+});
+
 service.onShutdown(async () => {
   mailer?.close();
+  await bus.close();
   await db.close();
 });
 

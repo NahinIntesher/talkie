@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Me, OtpVerified } from '@talkie/contracts';
 import { api, refreshSession, tokenStore } from './api';
+import { unregisterWebPush } from './push';
 
 type Status = 'loading' | 'signed_out' | 'signed_in';
 
@@ -74,6 +75,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    await unregisterWebPush();
     try {
       await api('/auth/logout', { method: 'POST' });
     } catch {}

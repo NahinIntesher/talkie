@@ -13,6 +13,7 @@ class Realtime {
 
   io.Socket? socket;
   final ValueNotifier<Connection> state = ValueNotifier(Connection.connecting);
+  int _failures = 0;
 
   io.Socket connect() {
     if (socket != null) return socket!;
@@ -29,13 +30,22 @@ class Realtime {
           .disableAutoConnect()
           .build(),
     );
-    s.onConnect((_) => state.value = Connection.connected);
+    s.onConnect((_) {
+      _failures = 0;
+      state.value = Connection.connected;
+    });
     s.onDisconnect((_) => state.value = Connection.connecting);
     s.onReconnectAttempt((_) => state.value = Connection.connecting);
     s.onConnectError((error) async {
       state.value = Connection.offline;
       // Expired access token: refresh it so the next automatic attempt carries the new one.
-      if ('$error'.contains('unauthorized')) await api.refresh?.call();
+      if ('$error'.contains('unauthorized')) {
+        await api.refresh?.call();
+        return;
+      }
+      // WebSocket blocked on this network or host: after a few failures, start with long-polling and let it
+      // upgrade to WebSocket when that works (the next automatic attempt uses the new order).
+      if (++_failures == 3) s.io.options?['transports'] = ['polling', 'websocket'];
     });
     s.connect();
     return socket = s;

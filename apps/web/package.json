@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@firebase/app": "^0.16.2",
+    "@firebase/messaging": "^0.13.3",
     "@livekit/track-processors": "^0.8.3",
     "@talkie/contracts": "*",
     "@talkie/e2ee": "*",

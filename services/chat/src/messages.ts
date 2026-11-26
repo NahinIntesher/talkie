@@ -179,7 +179,19 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: Context) {
           [messageId, messageId, id, me.userId],
         );
         await tx.run('UPDATE conversation_members SET archived_at = NULL WHERE conversation_id = ? AND archived_at IS NOT NULL AND (muted_until IS NULL OR muted_until < CURRENT_TIMESTAMP(3))', [id]);
-        await emit(tx, ctx, 'message.sent', id, await activeMemberIds(tx, id), { messageId, senderId: me.userId, kind: input.kind });
+        // Push notifications need who muted the chat and the group's name; message content stays end-to-end encrypted.
+        const muted = await tx.query<{ user_id: string }>(
+          'SELECT user_id FROM conversation_members WHERE conversation_id = ? AND left_at IS NULL AND muted_until > CURRENT_TIMESTAMP(3)',
+          [id],
+        );
+        const group = await tx.one<{ name: string }>('SELECT name FROM `groups` WHERE conversation_id = ?', [id]);
+        await emit(tx, ctx, 'message.sent', id, await activeMemberIds(tx, id), {
+          messageId,
+          senderId: me.userId,
+          kind: input.kind,
+          mutedBy: muted.map((row) => row.user_id),
+          groupName: group?.name ?? null,
+        });
       });
     } catch (error) {
       if (!isDuplicate(error)) throw error;

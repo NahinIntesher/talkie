@@ -15,6 +15,7 @@ import '../ui/widgets.dart';
 import 'chats.dart';
 import 'settings.dart';
 import 'thread.dart';
+import '../core/push.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -32,14 +33,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     context.read<Chat>().start();
     context.read<Calls>();
     context.read<Statuses>();
+    // Push notifications: register this device, and open the chat whose notification was tapped.
+    push.register();
+    push.openConversation.addListener(_openFromPush);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openFromPush());
     callHook = (context, conversation, video) async {
       final error = await context.read<Calls>().start(conversation.id, video);
       if (error != null && context.mounted) showMessage(context, error, error: true);
     };
   }
 
+  void _openFromPush() {
+    final id = push.openConversation.value;
+    if (id == null || !mounted) return;
+    push.openConversation.value = null;
+    setState(() => tab = 0);
+    openThread(context, id);
+  }
+
   @override
   void dispose() {
+    push.openConversation.removeListener(_openFromPush);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
