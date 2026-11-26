@@ -1,0 +1,11 @@
+{
+  "pages": {},
+  "app": {
+    "[project]/apps/web/app/app/admin/audit/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ]
+  },
+  "appUsingSizeAdjust": true,
+  "pagesUsingSizeAdjust": false
+}

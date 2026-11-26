@@ -1,0 +1,67 @@
+{
+  "app": {
+    "[project]/apps/web/app/_not-found/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ],
+    "[project]/apps/web/app/app/admin/audit/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ],
+    "[project]/apps/web/app/app/admin/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ],
+    "[project]/apps/web/app/app/admin/reports/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ],
+    "[project]/apps/web/app/app/admin/users/[id]/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ],
+    "[project]/apps/web/app/app/admin/users/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ],
+    "[project]/apps/web/app/app/calls/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ],
+    "[project]/apps/web/app/app/meet/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ],
+    "[project]/apps/web/app/app/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ],
+    "[project]/apps/web/app/app/settings/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ],
+    "[project]/apps/web/app/app/status/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ],
+    "[project]/apps/web/app/join/[code]/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ],
+    "[project]/apps/web/app/meet/[code]/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ],
+    "[project]/apps/web/app/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ],
+    "[project]/apps/web/app/signin/page": [
+      "static/media/47227609666e7f48-s.p.3jc5sq-923m_s.woff2",
+      "static/media/0e99e1103f55aa29-s.p.3tf5ezedf-qfh.woff2"
+    ]
+  },
+  "appUsingSizeAdjust": true,
+  "pages": {},
+  "pagesUsingSizeAdjust": false
+}

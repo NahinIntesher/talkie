@@ -1,0 +1,19 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/app/admin/audit/page": "/app/admin/audit",
+  "/app/admin/page": "/app/admin",
+  "/app/admin/reports/page": "/app/admin/reports",
+  "/app/admin/users/[id]/page": "/app/admin/users/[id]",
+  "/app/admin/users/page": "/app/admin/users",
+  "/app/calls/page": "/app/calls",
+  "/app/meet/page": "/app/meet",
+  "/app/page": "/app",
+  "/app/settings/page": "/app/settings",
+  "/app/status/page": "/app/status",
+  "/join/[code]/page": "/join/[code]",
+  "/manifest.webmanifest/route": "/manifest.webmanifest",
+  "/meet/[code]/page": "/meet/[code]",
+  "/page": "/",
+  "/signin/page": "/signin"
+}

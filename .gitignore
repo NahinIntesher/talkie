@@ -1,0 +1,8 @@
+# Only on the server, never in git:
+.env
+secrets/
+node_modules/
+data/
+tmp/
+*.log
+*.log.1
