@@ -5,6 +5,7 @@ import { motion } from 'motion/react';
 import clsx from 'clsx';
 import { Camera, Globe, Laptop, Loader2, LogOut, Monitor, Moon, Palette, Shield, Smartphone, Sun, Trash2, User } from 'lucide-react';
 import { uploadPhoto } from '@/lib/chat/media';
+import { historyTransferCode, transferHistory } from '@/lib/chat/history';
 import { about as aboutRule, displayName as displayNameRule, type DeviceInfo, type PrivacyAudience, type PrivacyKey } from '@talkie/contracts';
 import { Avatar, Button, Segmented, Switch, TextField } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
@@ -51,7 +52,12 @@ export default function SettingsPage() {
         <motion.div key={section} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mx-auto max-w-2xl px-4 py-8 sm:px-8">
           {section === 'profile' && <ProfileSection />}
           {section === 'privacy' && <PrivacySection />}
-          {section === 'devices' && <DevicesSection />}
+          {section === 'devices' && (
+            <div className="space-y-6">
+              <DevicesSection />
+              <HistorySection />
+            </div>
+          )}
           {section === 'appearance' && <AppearanceSection />}
         </motion.div>
       </main>
@@ -280,6 +286,51 @@ function DevicesSection() {
           );
         })}
       </ul>
+    </Panel>
+  );
+}
+
+function HistorySection() {
+  const { t, locale } = useI18n();
+  const toast = useToast();
+  const [transferCode, setTransferCode] = useState('');
+  const [transferring, setTransferring] = useState(false);
+  const historyText = (bn: string, en: string) => locale === 'bn' ? bn : en;
+
+  const copyTransferCode = async () => {
+    try {
+      const code = historyTransferCode();
+      if (!code) throw new Error('Device keys are loading.');
+      await navigator.clipboard.writeText(code);
+      toast(historyText('এই ডিভাইসের কোড কপি হয়েছে', 'Device code copied'));
+    } catch {
+      toast(t.errors.generic, 'error');
+    }
+  };
+
+  const sendHistory = async () => {
+    setTransferring(true);
+    try {
+      const { added, unreadable } = await transferHistory(transferCode);
+      setTransferCode('');
+      const count = new Intl.NumberFormat(locale);
+      toast(historyText(`${count.format(added)}টি বার্তার চাবি পাঠানো হয়েছে। ${count.format(unreadable)}টি খোলা যায়নি।`, `Transferred ${count.format(added)} message keys. ${count.format(unreadable)} could not be opened.`));
+    } catch {
+      toast(historyText('পাঠানো যায়নি। অন্য ডিভাইসের কোড যাচাই করে আবার চেষ্টা করুন।', 'Transfer failed. Check the code from your other device and try again.'), 'error');
+    } finally {
+      setTransferring(false);
+    }
+  };
+
+  return (
+    <Panel title={historyText('এনক্রিপ্ট করা চ্যাট ইতিহাস', 'Encrypted chat history')}>
+      <div className="space-y-3">
+        <Button size="sm" variant="ghost" onClick={() => void copyTransferCode()}>{historyText('এই ডিভাইসের কোড কপি করুন', 'Copy this device’s code')}</Button>
+        <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); if (!transferring && transferCode.trim()) void sendHistory(); }}>
+          <TextField label={historyText('অন্য ডিভাইসের কোড', 'Other device’s code')} value={transferCode} onChange={(event) => setTransferCode(event.target.value)} autoCapitalize="none" spellCheck={false} disabled={transferring} />
+          <Button type="submit" disabled={transferring || !transferCode.trim()}>{transferring ? historyText('পাঠানো হচ্ছে…', 'Transferring…') : historyText('চ্যাট ইতিহাস পাঠান', 'Send chat history')}</Button>
+        </form>
+      </div>
     </Panel>
   );
 }

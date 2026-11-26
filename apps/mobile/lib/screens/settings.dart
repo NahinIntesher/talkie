@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:mime/mime.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
+import '../chat/chat.dart';
+import '../chat/history.dart';
 import '../chat/media.dart';
 import '../chat/models.dart';
 import '../core/api.dart';
@@ -64,6 +68,7 @@ class SettingsScreen extends StatelessWidget {
         _Section(children: [
           _Row(icon: LucideIcons.shieldCheck, label: t('প্রাইভেসি', 'Privacy'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PrivacyScreen()))),
           _Row(icon: LucideIcons.monitorSmartphone, label: t('ডিভাইস', 'Devices'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DevicesScreen()))),
+          _Row(icon: LucideIcons.bell, label: t('নোটিফিকেশন সেটিংস', 'Notification settings'), onTap: () => openAppSettings()),
         ]),
         _Section(children: [
           _Row(
@@ -335,6 +340,43 @@ class DevicesScreen extends StatefulWidget {
 
 class _DevicesScreenState extends State<DevicesScreen> {
   List<Json>? devices;
+  bool transferring = false;
+
+  Future<void> _transfer() async {
+    final t = context.read<Prefs>().t;
+    final chat = context.read<Chat>();
+    var code = '';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(t('চ্যাট ইতিহাস পাঠান', 'Send chat history')),
+        content: TextField(
+          onChanged: (value) => code = value,
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: InputDecoration(labelText: t('অন্য ডিভাইসের কোড', 'Other device’s code')),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog), child: Text(t('বাতিল', 'Cancel'))),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: Text(t('পাঠান', 'Send'))),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true || code.trim().isEmpty) return;
+    setState(() => transferring = true);
+    try {
+      final result = await transferHistory(chat, code);
+      if (!mounted) return;
+      final prefs = context.read<Prefs>();
+      final added = digits('${result.added}', prefs);
+      final unreadable = digits('${result.unreadable}', prefs);
+      showMessage(context, t('$addedটি বার্তার চাবি পাঠানো হয়েছে। $unreadableটি খোলা যায়নি।', 'Transferred $added message keys. $unreadable could not be opened.'));
+    } catch (_) {
+      if (mounted) showMessage(context, t('পাঠানো যায়নি। অন্য ডিভাইসের কোড যাচাই করে আবার চেষ্টা করুন।', 'Transfer failed. Check the code from your other device and try again.'), error: true);
+    } finally {
+      if (mounted) setState(() => transferring = false);
+    }
+  }
 
   @override
   void initState() {
@@ -381,6 +423,27 @@ class _DevicesScreenState extends State<DevicesScreen> {
                           },
                         ),
                 ),
+              if (transferring) const LinearProgressIndicator(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 4),
+                child: Text(t('এনক্রিপ্ট করা চ্যাট ইতিহাস', 'Encrypted chat history'), style: Theme.of(context).textTheme.titleMedium),
+              ),
+              ListTile(
+                leading: const Icon(LucideIcons.copy),
+                title: Text(t('এই ডিভাইসের কোড কপি করুন', 'Copy this device’s code')),
+                onTap: () async {
+                  final code = historyTransferCode(context.read<Session>());
+                  if (code == null) return;
+                  await Clipboard.setData(ClipboardData(text: code));
+                  if (context.mounted) showMessage(context, t('এই ডিভাইসের কোড কপি হয়েছে', 'Device code copied'));
+                },
+              ),
+              ListTile(
+                leading: const Icon(LucideIcons.send),
+                title: Text(t('চ্যাট ইতিহাস পাঠান', 'Send chat history')),
+                enabled: !transferring,
+                onTap: transferring ? null : _transfer,
+              ),
             ]),
     );
   }

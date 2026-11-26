@@ -34,6 +34,7 @@ class Chat extends ChangeNotifier {
 
   final _deviceCache = <String, List<Recipient>>{};
   final _publicKeys = <String, String>{};
+  final _keyOwners = <String, String>{};
   final _readSent = <String, String>{};
   final _deliveredSent = <String, String>{};
   final _profileRequests = <String>{};
@@ -85,12 +86,22 @@ class Chat extends ChangeNotifier {
     }
   }
 
-  Future<void> _senderKeys(Iterable<String> deviceIds) async {
-    final missing = deviceIds.toSet().where((id) => !_publicKeys.containsKey(id)).toList();
+  Future<void> _senderKeys(Iterable<String> deviceIds, {Set<String> wrappers = const {}}) async {
+    final deviceId = session.deviceId;
+    final keys = session.keys;
+    if (deviceId != null && keys != null) {
+      _publicKeys[deviceId] = keys.publicKey;
+      _keyOwners[deviceId] = me;
+    }
+    final missing = deviceIds.toSet().where((id) => !_publicKeys.containsKey(id) || (wrappers.contains(id) && !_keyOwners.containsKey(id))).toList();
     if (missing.isEmpty) return;
     for (var i = 0; i < missing.length; i += 200) {
       final result = await api.post('/auth/device-keys/lookup', {'deviceIds': missing.sublist(i, (i + 200).clamp(0, missing.length))});
-      _remember((result['devices'] as List).map((d) => Recipient.fromJson(d as Json)).toList());
+      for (final item in (result['devices'] as List).cast<Json>()) {
+        final device = Recipient.fromJson(item);
+        _publicKeys[device.deviceId] = device.identityKey;
+        _keyOwners[device.deviceId] = item['userId'] as String;
+      }
     }
   }
 
@@ -113,9 +124,11 @@ class Chat extends ChangeNotifier {
   Future<List<ChatMessage>> _decrypt(List<Json> wire) async {
     final keys = session.keys;
     final messages = wire.map(ChatMessage.fromWire).toList();
-    final senders = messages.where((m) => m.ciphertext != null && m.sealedKey != null).map((m) => m.senderDeviceId);
+    final encrypted = messages.where((m) => m.ciphertext != null && m.sealedKey != null).toList();
+    final wrappers = encrypted.map((m) => m.keySenderDeviceId).whereType<String>().toSet();
+    final senders = encrypted.map((m) => m.keySenderDeviceId ?? m.senderDeviceId);
     try {
-      await _senderKeys(senders);
+      await _senderKeys(senders, wrappers: wrappers);
     } catch (_) {}
     for (final m in messages) {
       if (m.ciphertext == null || m.deleted || m.kind == 'system') continue;
@@ -123,7 +136,8 @@ class Chat extends ChangeNotifier {
         m.unreadable = 'not_for_this_device';
         continue;
       }
-      final senderKey = _publicKeys[m.senderDeviceId];
+      final wrap = m.keySenderDeviceId;
+      final senderKey = wrap != null && _keyOwners[wrap] != me ? null : _publicKeys[wrap ?? m.senderDeviceId];
       if (senderKey == null) {
         m.unreadable = 'failed';
         continue;
@@ -144,15 +158,24 @@ class Chat extends ChangeNotifier {
     if (missing.isEmpty) return;
     _profileRequests.addAll(missing);
     try {
-      for (var i = 0; i < missing.length; i += 200) {
-        final result = await api.post('/users/lookup', {'ids': missing.sublist(i, (i + 200).clamp(0, missing.length))});
-        for (final u in result['users'] as List) {
-          final p = Profile(u as Json);
-          profiles[p.id] = p;
+      for (var i = 0; i < missing.length; i += 50) {
+        final batch = missing.sublist(i, (i + 50).clamp(0, missing.length));
+        try {
+          final result = await api.post('/users/lookup', {'ids': batch});
+          for (final u in result['users'] as List) {
+            final p = Profile(u as Json);
+            profiles[p.id] = p;
+          }
+          _changed();
+        } catch (_) {
+          for (final id in batch) {
+            if (_disposed) return;
+            try {
+              await refreshProfile(id);
+            } catch (_) {}
+          }
         }
-        _changed();
       }
-    } catch (_) {
     } finally {
       _profileRequests.removeAll(missing);
     }
@@ -168,7 +191,7 @@ class Chat extends ChangeNotifier {
 
   String nameOf(String userId, {String you = 'You'}) => userId == me ? you : (profiles[userId]?.name ?? '…');
 
-  String titleOf(Conversation c) => c.isGroup ? (c.group?['name'] as String? ?? '') : (c.peerId != null ? profiles[c.peerId]?.name ?? '…' : '…');
+  String titleOf(Conversation c, {String fallback = '…'}) => c.isGroup ? (c.group?['name'] as String? ?? fallback) : (profiles[c.peerId]?.name ?? fallback);
 
   String? avatarOf(Conversation c) => c.isGroup ? (c.group?['avatarUrl'] as String?) : profiles[c.peerId]?.avatarUrl;
 
@@ -233,7 +256,8 @@ class Chat extends ChangeNotifier {
     activeId = conversationId;
     if (conversationId == null) return;
     reload(conversationId);
-    if (threads[conversationId]?.loaded != true) await loadOlder(conversationId, initial: true);
+    final thread = threads[conversationId];
+    if (thread?.loaded != true || thread!.items.any((m) => m.unreadable != null)) await loadOlder(conversationId, initial: true);
     markRead(conversationId);
   }
 

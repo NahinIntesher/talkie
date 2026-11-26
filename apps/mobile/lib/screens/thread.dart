@@ -52,6 +52,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
     final p = context.palette;
     final t = prefs.t;
     final c = chat.conversations[widget.conversationId];
+    final title = c == null ? '' : chat.titleOf(c, fallback: t('চ্যাট', 'Chat'));
     final thread = chat.threads[widget.conversationId];
     final items = thread?.items ?? [];
     final typing = chat.typingIn(widget.conversationId).where((u) => u != chat.me).toList();
@@ -79,11 +80,11 @@ class _ThreadScreenState extends State<ThreadScreen> {
         title: c == null
             ? const SizedBox.shrink()
             : Row(children: [
-                Avatar(name: chat.titleOf(c), url: chat.avatarOf(c), size: 40, group: c.isGroup && chat.avatarOf(c) == null),
+                Avatar(name: title, url: chat.avatarOf(c), size: 40, group: c.isGroup && chat.avatarOf(c) == null),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(chat.titleOf(c), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                    Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
                     if (status.isNotEmpty)
                       Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: typing.isNotEmpty || status == t('অনলাইন', 'online') ? p.brand : p.subtle)),
                   ]),

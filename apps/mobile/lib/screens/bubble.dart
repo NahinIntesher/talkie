@@ -57,7 +57,12 @@ class _MessageBubbleState extends State<MessageBubble> {
       content = Row(mainAxisSize: MainAxisSize.min, children: [
         Icon(LucideIcons.lock, size: 15, color: meta),
         const SizedBox(width: 6),
-        Flexible(child: Text(t('বার্তাটি খোলা যায়নি', 'Message unavailable'), style: TextStyle(color: meta, fontStyle: FontStyle.italic))),
+        Flexible(child: Text(
+          m.unreadable == 'not_for_this_device'
+              ? t('এই ডিভাইস লিংক করার আগে মেসেজটি পাঠানো হয়েছিল।', 'Sent before this device was linked.')
+              : t('বার্তাটি খোলা যায়নি', 'Message unavailable'),
+          style: TextStyle(color: meta, fontStyle: FontStyle.italic),
+        )),
       ]);
     } else if (m.kind == 'call') {
       content = Row(mainAxisSize: MainAxisSize.min, children: [Icon(LucideIcons.phone, size: 16, color: fg), const SizedBox(width: 8), Text(t('কল', 'Call'), style: TextStyle(color: fg, fontWeight: FontWeight.w700))]);

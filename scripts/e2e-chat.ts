@@ -71,7 +71,13 @@ interface Person {
 
 async function signUp(name: string, email = `${name}.${Date.now()}@example.com`): Promise<Person> {
   const keys = e2ee.generateDeviceKeys();
-  const { status: otpStatus, body: otp } = await call('auth', '/auth/otp/request', { body: { email, locale: 'en' } });
+  const requestCode = () => call('auth', '/auth/otp/request', { body: { email, locale: 'en' } });
+  let { status: otpStatus, body: otp } = await requestCode();
+  const retryAfter = otp.error?.details?.retryAfterSeconds;
+  if (otpStatus === 429 && retryAfter > 0 && retryAfter <= 60) {
+    await wait((retryAfter + 1) * 1000);
+    ({ status: otpStatus, body: otp } = await requestCode());
+  }
   if (!otp.challengeId) throw new Error(`code request for ${name} failed (${otpStatus}): ${JSON.stringify(otp)}`);
   const code = process.env.E2E_EXTERNAL ? process.env.DEV_FIXED_OTP : await until(() => codes.get(email));
   const device = { name: `${name}'s test device`, platform: 'android', identityKey: keys.publicKey };
@@ -124,7 +130,8 @@ async function main() {
   check('all seven services are up', !!up);
 
   const ayesha = await signUp('ayesha');
-  const rafi = await signUp('rafi');
+  const rafiEmail = `rafi.${Date.now()}@example.com`;
+  const rafi = await signUp('rafi', rafiEmail);
   const mim = await signUp('mim');
   check('three people signed up with device keys', !!(ayesha.token && rafi.token && mim.token));
   await Promise.all([ayesha, rafi, mim].map(connect));
@@ -136,6 +143,11 @@ async function main() {
   const conversationId = direct.conversation.id as string;
   const again = await call('chat', '/chat/conversations/direct', { token: rafi.token, body: { userId: ayesha.userId } });
   check('one direct conversation per pair', again.body.conversation.id === conversationId);
+  const peer = await call('users', '/users/lookup', { token: ayesha.token, body: { ids: [direct.conversation.peerId] } });
+  check('a chat peer resolves to a profile', peer.body.users?.[0]?.displayName === 'rafi', peer.body);
+  const username = peer.body.users?.[0]?.username;
+  const found = await call('users', `/users/by-username/${username}`, { token: ayesha.token });
+  check('exact username search finds the chat peer', found.body.user?.id === rafi.userId, found.body);
 
   const sent = await send(ayesha, conversationId, 'Hello Rafi 👋, this is encrypted');
   check('message sent', sent.status === 201, sent.body);
@@ -231,9 +243,34 @@ async function main() {
 
   await phase3({ call, check, mediaPort: ports.media }, { ayesha, rafi, mim }, conversationId, groupId, deviceKeys);
   await phase4({ call, check }, { ayesha, rafi, mim }, conversationId, groupId);
+  await checkHistory(rafi, rafiEmail, mim, conversationId, messageId, reply.body.message.id, deviceKeys);
   const boss = await signUp('boss', OWNER_EMAIL);
   await phase6({ call, check }, { boss, ayesha, rafi, mim });
   for (const person of [ayesha, rafi, mim]) person.socket?.disconnect();
+}
+
+async function checkHistory(source: Person, email: string, outsider: Person, conversationId: string, messageId: string, deletedId: string, known: Map<string, string>) {
+  const receiver = await signUp(source.name, email);
+  const target = { deviceId: receiver.deviceId, identityKey: receiver.keys.publicKey };
+  const { body: original } = await call('chat', `/chat/conversations/${conversationId}/messages`, { token: receiver.token });
+  check('a newly linked device initially has ciphertext without the old key', original.messages?.find((m: any) => m.id === messageId)?.sealedKey === null);
+
+  const { body: exportPage } = await call('chat', `/chat/history/transfer?${new URLSearchParams(target)}`, { token: source.token });
+  const key = exportPage.keys?.find((entry: any) => entry.messageId === messageId);
+  check('only the old device can export its available history', !!key && !exportPage.keys.some((entry: any) => entry.messageId === deletedId), exportPage);
+  if (!key) return;
+  const secret = e2ee.openSecret(key.sealedKey, known.get(key.keySenderDeviceId)!, source.keys);
+  const sealedKey = e2ee.sealSecret(secret, source.keys, [target])[0]!.sealedKey;
+  const submit = (token: string, nonce: string) => call('chat', '/chat/history/transfer', { token, body: { target, keys: [{ messageId, nonce, sealedKey }] } });
+  check('other accounts cannot transfer keys to this device', (await submit(outsider.token, key.nonce)).status === 403);
+  check('a transfer for a different ciphertext version is ignored', (await submit(source.token, 'A'.repeat(32))).body.added === 0);
+  check('an authorized transfer stores one wrapper', (await submit(source.token, key.nonce)).body.added === 1);
+  check('retrying the transfer is idempotent', (await submit(source.token, key.nonce)).body.added === 0);
+
+  const { body: imported } = await call('chat', `/chat/messages/${messageId}`, { token: receiver.token });
+  check('the new device opens old history with its own key', imported.message?.keySenderDeviceId === source.deviceId && e2ee.open(imported.message, source.keys.publicKey, receiver.keys).text === 'Hello Rafi (edited)');
+  const { body: unchanged } = await call('chat', `/chat/messages/${messageId}`, { token: source.token });
+  check('the original device still opens the original wrapper', !unchanged.message?.keySenderDeviceId && e2ee.open(unchanged.message, known.get(unchanged.message.senderDeviceId)!, source.keys).text === 'Hello Rafi (edited)');
 }
 
 main()

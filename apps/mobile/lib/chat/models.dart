@@ -14,7 +14,7 @@ class Profile {
   String? get lastSeenAt => json['lastSeenAt'] as String?;
   bool get blockedByMe => json['blockedByMe'] == true;
   bool get isContact => json['isContact'] == true;
-  String get name => (nickname?.isNotEmpty ?? false) ? nickname! : displayName;
+  String get name => (nickname?.isNotEmpty ?? false) ? nickname! : (displayName.isNotEmpty ? displayName : '@$username');
 }
 
 class Reaction {
@@ -33,6 +33,7 @@ class ChatMessage {
     this.ciphertext,
     this.nonce,
     this.sealedKey,
+    this.keySenderDeviceId,
     this.systemEvent,
     this.replyToId,
     this.forwardedCount = 0,
@@ -57,6 +58,7 @@ class ChatMessage {
         ciphertext: m['ciphertext'] as String?,
         nonce: m['nonce'] as String?,
         sealedKey: m['sealedKey'] as String?,
+        keySenderDeviceId: m['keySenderDeviceId'] as String?,
         systemEvent: m['systemEvent'] as Json?,
         replyToId: m['replyToId'] as String?,
         forwardedCount: (m['forwardedCount'] as num?)?.toInt() ?? 0,
@@ -75,6 +77,7 @@ class ChatMessage {
   final String senderDeviceId;
   final String kind;
   final String? ciphertext, nonce, sealedKey;
+  final String? keySenderDeviceId;
   final Json? systemEvent;
   final String? replyToId;
   final int forwardedCount;
@@ -106,6 +109,7 @@ class ChatMessage {
         ciphertext: ciphertext,
         nonce: nonce,
         sealedKey: sealedKey,
+        keySenderDeviceId: keySenderDeviceId,
         systemEvent: systemEvent,
         replyToId: replyToId,
         forwardedCount: forwardedCount,

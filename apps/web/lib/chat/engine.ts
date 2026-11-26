@@ -4,7 +4,7 @@ import type { ConversationSummary, DeviceKey, MemberInfo, Receipts, WireMessage 
 import * as e2ee from '@talkie/e2ee';
 import { api, ApiError, refreshSession } from '../api';
 import { connectRealtime, disconnectRealtime, onConnectionState, realtime, renewRealtimeToken } from '../realtime';
-import { deviceKeys, ensureDeviceKeys, rememberKeys, senderKeys } from './keys';
+import { deviceKeys, ensureDeviceKeys, isKeyOwner, rememberKeys, senderKeys } from './keys';
 import { resetChat, useChat, type ChatMessage, type Profile } from './store';
 import { kindOf, prepareImage, prepareVideo, primeAttachment, uploadEncrypted } from './media';
 import type { AttachmentRef, MessageKind, PollBody } from '@talkie/contracts';
@@ -28,12 +28,16 @@ const newer = (a: string, b: string) => BigInt(a) > BigInt(b);
 
 async function decrypt(messages: WireMessage[]): Promise<ChatMessage[]> {
   const keys = deviceKeys();
-  const senders = messages.filter((m) => m.ciphertext && m.sealedKey).map((m) => m.senderDeviceId);
-  const known = senders.length ? await senderKeys(senders).catch(() => new Map<string, string>()) : new Map<string, string>();
+  const sealed = messages.filter((m) => m.ciphertext && m.sealedKey);
+  const wrappers = new Set(sealed.flatMap((m) => m.keySenderDeviceId ? [m.keySenderDeviceId] : []));
+  const senders = sealed.map((m) => m.keySenderDeviceId ?? m.senderDeviceId);
+  const known = senders.length ? await senderKeys(senders, wrappers).catch(() => senderKeys([])) : new Map<string, string>();
   return messages.map((message) => {
     if (!message.ciphertext || message.deletedAt || message.kind === 'system') return { ...message, body: null };
     if (!message.sealedKey || !keys) return { ...message, body: null, unreadable: 'not_for_this_device' };
-    const senderKey = known.get(message.senderDeviceId);
+    const wrap = message.keySenderDeviceId;
+    const owner = get().me?.userId;
+    const senderKey = wrap && (!owner || !isKeyOwner(wrap, owner)) ? undefined : known.get(wrap ?? message.senderDeviceId);
     if (!senderKey) return { ...message, body: null, unreadable: 'failed' };
     try {
       return { ...message, body: e2ee.open({ ciphertext: message.ciphertext, nonce: message.nonce!, sealedKey: message.sealedKey }, senderKey, keys.pair) };
@@ -51,8 +55,16 @@ export async function loadProfiles(userIds: string[]) {
   if (!missing.length) return;
   missing.forEach((id) => profileRequests.add(id));
   try {
-    for (let offset = 0; offset < missing.length; offset += 200) {
-      const { users } = await api<{ users: Profile[] }>('/users/lookup', { method: 'POST', body: { ids: missing.slice(offset, offset + 200) } });
+    for (let offset = 0; offset < missing.length; offset += 50) {
+      const ids = missing.slice(offset, offset + 50);
+      const { users } = await api<{ users: Profile[] }>('/users/lookup', { method: 'POST', body: { ids } }).catch(async () => {
+        const users: Profile[] = [];
+        for (const id of ids) {
+          const result = await api<{ user: Profile }>(`/users/${id}`).catch(() => null);
+          if (result) users.push(result.user);
+        }
+        return { users };
+      });
       set((state) => ({ profiles: { ...state.profiles, ...Object.fromEntries(users.map((u) => [u.id, u])) } }));
     }
   } finally {
@@ -118,7 +130,7 @@ export async function openConversation(conversationId: string | null) {
   if (!conversationId) return;
   const thread = get().threads[conversationId];
   void reloadConversation(conversationId);
-  if (!thread?.loaded) await loadOlder(conversationId, true);
+  if (!thread?.loaded || thread.items.some((m) => m.unreadable)) await loadOlder(conversationId, true);
   markRead(conversationId);
 }
 

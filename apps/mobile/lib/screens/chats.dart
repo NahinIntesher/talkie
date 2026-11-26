@@ -40,8 +40,10 @@ class _ChatsScreenState extends State<ChatsScreen> {
     final prefs = context.watch<Prefs>();
     final p = context.palette;
     final t = prefs.t;
-    final query = search.text.trim().toLowerCase();
+    final rawQuery = search.text.trim();
+    final query = rawQuery.toLowerCase().replaceFirst(RegExp(r'^@'), '');
     var list = chat.ordered(archived: widget.archived);
+    if (!widget.archived && query.isNotEmpty) list = [...list, ...chat.ordered(archived: true)];
     if (filter == 'unread') list = list.where((c) => c.unreadCount > 0 || c.markedUnread).toList();
     if (filter == 'groups') list = list.where((c) => c.isGroup).toList();
     if (query.isNotEmpty) list = list.where((c) => chat.titleOf(c).toLowerCase().contains(query) || (chat.profiles[c.peerId]?.username.contains(query) ?? false)).toList();
@@ -80,17 +82,17 @@ class _ChatsScreenState extends State<ChatsScreen> {
         child: CustomScrollView(slivers: [
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               child: TextField(
                 controller: search,
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
                   hintText: t('খুঁজুন', 'Search'),
                   prefixIcon: const Icon(LucideIcons.search, size: 20),
-                  suffixIcon: query.isEmpty ? null : IconButton(icon: const Icon(LucideIcons.x, size: 18), onPressed: () => setState(search.clear)),
+                  suffixIcon: rawQuery.isEmpty ? null : IconButton(icon: const Icon(LucideIcons.x, size: 18), onPressed: () => setState(search.clear)),
                   contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(99), borderSide: BorderSide.none),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(99), borderSide: BorderSide(color: p.brand.withValues(alpha: 0.6), width: 1)),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: p.brand.withValues(alpha: 0.6), width: 1)),
                 ),
               ),
             ),
@@ -143,6 +145,11 @@ class _ChatsScreenState extends State<ChatsScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(query.isEmpty ? t('এখনো কোনো চ্যাট নেই', 'No chats yet') : t('কিছু পাওয়া যায়নি', 'Nothing found'), style: Theme.of(context).textTheme.titleMedium),
+                  if (!widget.archived && RegExp(r'^[a-z0-9._]{3,32}$').hasMatch(query))
+                    TextButton(
+                      onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => NewChatScreen(initialQuery: rawQuery))),
+                      child: Text(t('@$query খুঁজুন', 'Find @$query')),
+                    ),
                 ]).animate().fadeIn(duration: 300.ms),
               ),
             )
@@ -168,6 +175,7 @@ class _ChatRow extends StatelessWidget {
     final prefs = context.read<Prefs>();
     final p = context.palette;
     final c = conversation;
+    final title = chat.titleOf(c, fallback: prefs.t('চ্যাট', 'Chat'));
     final last = c.last;
     final typing = chat.typingIn(c.id).where((u) => u != chat.me).toList();
     final unread = c.unreadCount > 0 || c.markedUnread;
@@ -191,7 +199,7 @@ class _ChatRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(children: [
           Stack(clipBehavior: Clip.none, children: [
-            Avatar(name: chat.titleOf(c), url: chat.avatarOf(c), size: 54, group: c.isGroup && chat.avatarOf(c) == null),
+            Avatar(name: title, url: chat.avatarOf(c), size: 54, group: c.isGroup && chat.avatarOf(c) == null),
             if (online)
               Positioned(
                 right: 1,
@@ -203,7 +211,7 @@ class _ChatRow extends StatelessWidget {
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                Expanded(child: Text(chat.titleOf(c), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800, color: p.text))),
+                Expanded(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800, color: p.text))),
                 if (last != null) Text(listTime(last.time, prefs), style: TextStyle(fontSize: 12, fontWeight: unread ? FontWeight.w800 : FontWeight.w600, color: unread ? p.brand : p.subtle)),
               ]),
               const SizedBox(height: 3),

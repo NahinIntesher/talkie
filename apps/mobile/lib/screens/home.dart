@@ -30,13 +30,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    context.read<Chat>().start();
+    final chat = context.read<Chat>();
+    chat.start();
     context.read<Calls>();
     context.read<Statuses>();
     // Push notifications: register this device, and open the chat whose notification was tapped.
-    push.register();
     push.openConversation.addListener(_openFromPush);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _openFromPush());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _openFromPush();
+      push.register(openChat: () => chat.activeId);
+    });
     callHook = (context, conversation, video) async {
       final error = await context.read<Calls>().start(conversation.id, video);
       if (error != null && context.mounted) showMessage(context, error, error: true);
@@ -63,6 +67,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final chat = context.read<Chat>();
     if (state == AppLifecycleState.resumed) {
       chat.resumed();
+      push.register(openChat: () => chat.activeId, requestPermission: false);
     } else if (state == AppLifecycleState.paused) {
       chat.appVisible = false;
     }

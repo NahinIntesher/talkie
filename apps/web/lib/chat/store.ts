@@ -81,7 +81,7 @@ export function orderedConversations(state: ChatState) {
 export function conversationTitle(state: ChatState, conversation: ConversationSummary): string {
   if (conversation.group) return conversation.group.name;
   const peer = conversation.peerId ? state.profiles[conversation.peerId] : undefined;
-  return peer?.nickname || peer?.displayName || '…';
+  return peer?.nickname || peer?.displayName || (peer?.username ? `@${peer.username}` : '…');
 }
 
 export const nameOf = (state: ChatState, userId: string, you = 'You') =>

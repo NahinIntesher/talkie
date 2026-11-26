@@ -77,7 +77,7 @@ export const usersClient = (env: ChatEnv): UsersClient => ({
  * event arrives for that user.
  */
 export interface DeviceDirectory {
-  forUsers(userIds: string[]): Promise<DeviceKey[]>;
+  forUsers(userIds: string[], fresh?: boolean): Promise<DeviceKey[]>;
   forget(userId: string): void;
 }
 
@@ -85,10 +85,10 @@ export function deviceDirectory(env: ChatEnv): DeviceDirectory {
   const cache = new Map<string, { at: number; devices: DeviceKey[] }>();
   const TTL = 30_000;
   return {
-    async forUsers(userIds) {
+    async forUsers(userIds, fresh = false) {
       const unique = [...new Set(userIds)];
       const now = Date.now();
-      const missing = unique.filter((id) => (cache.get(id)?.at ?? 0) + TTL < now);
+      const missing = unique.filter((id) => fresh || (cache.get(id)?.at ?? 0) + TTL < now);
       for (let offset = 0; offset < missing.length; offset += 1000) {
         const batch = missing.slice(offset, offset + 1000);
         const { devices } = await internal<{ devices: DeviceKey[] }>(env, `${env.AUTH_URL}/internal/device-keys`, { userIds: batch });
@@ -177,6 +177,7 @@ export interface MessageRow {
   ciphertext: Buffer | null;
   nonce: Buffer | null;
   sealed_key: Buffer | null;
+  wrap_device_id: string | null;
   system_event: string | null;
   reply_to_id: string | null;
   forwarded_count: number;
@@ -186,7 +187,7 @@ export interface MessageRow {
   created_at: Date;
 }
 
-export const MESSAGE_COLUMNS = `m.id, m.conversation_id, m.sender_id, m.sender_device_id, m.kind, m.ciphertext, m.nonce, k.sealed_key,
+export const MESSAGE_COLUMNS = `m.id, m.conversation_id, m.sender_id, m.sender_device_id, m.kind, m.ciphertext, m.nonce, k.sealed_key, k.wrap_device_id,
   m.system_event, m.reply_to_id, m.forwarded_count, m.edited_at, m.deleted_at, m.expires_at, m.created_at`;
 
 /** Adds reactions and the viewer's stars to message rows. */
@@ -223,6 +224,7 @@ export async function toWire(db: Executor, rows: MessageRow[], viewerId: string)
       ciphertext: row.ciphertext ? row.ciphertext.toString('base64url') : null,
       nonce: row.nonce ? row.nonce.toString('base64url') : null,
       sealedKey: row.sealed_key ? row.sealed_key.toString('base64url') : null,
+      ...(row.wrap_device_id ? { keySenderDeviceId: row.wrap_device_id } : {}),
       systemEvent: row.system_event ? (JSON.parse(row.system_event) as SystemEvent) : null,
       replyToId: row.reply_to_id,
       forwardedCount: row.forwarded_count,

@@ -100,7 +100,6 @@ export function createFcm(account: ServiceAccount, log: Logger) {
             notification: {
               channel_id: message.channel,
               ...(message.tag ? { tag: message.tag } : {}),
-              click_action: 'FLUTTER_NOTIFICATION_CLICK',
               default_sound: true,
             },
           },

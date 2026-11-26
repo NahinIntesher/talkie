@@ -23,7 +23,7 @@ const copy = {
 /** Bilingual, dark-mode-friendly transactional email with a large, copyable code. */
 export function otpEmail(code: string, locale: Locale) {
   const t = copy[locale];
-  const spaced = escape(code.split('').join(' '));
+  const digits = escape(code);
   const html = `<!doctype html>
 <html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark">
@@ -37,7 +37,7 @@ export function otpEmail(code: string, locale: Locale) {
 <tr><td style="padding:32px">
 <h1 style="margin:0 0 8px;font-size:20px;line-height:1.3">${t.heading}</h1>
 <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#475569">${t.body}</p>
-<div style="font-size:34px;font-weight:800;letter-spacing:.18em;text-align:center;padding:18px 12px;border-radius:14px;background:#eef2ff;color:#3730a3;font-family:'SF Mono',Consolas,monospace">${spaced}</div>
+<div style="text-align:center;padding:18px 12px;border-radius:14px;background:#eef2ff;color:#3730a3"><code style="font-size:34px;font-weight:800;letter-spacing:.18em;font-family:'SF Mono',Consolas,monospace;-webkit-user-select:all;user-select:all">${digits}</code></div>
 <p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:#64748b">${t.ignore}</p>
 <p style="margin:8px 0 0;font-size:13px;line-height:1.6;color:#64748b"><strong>${t.never}</strong></p>
 </td></tr></table>

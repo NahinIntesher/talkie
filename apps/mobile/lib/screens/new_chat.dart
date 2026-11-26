@@ -14,8 +14,9 @@ import 'thread.dart';
 
 /// Start a chat by username or from contacts, or pick people for a new group.
 class NewChatScreen extends StatefulWidget {
-  const NewChatScreen({super.key, this.group = false});
+  const NewChatScreen({super.key, this.group = false, this.initialQuery = ''});
   final bool group;
+  final String initialQuery;
   @override
   State<NewChatScreen> createState() => _NewChatScreenState();
 }
@@ -26,6 +27,8 @@ class _NewChatScreenState extends State<NewChatScreen> {
   List<Profile> contacts = [];
   Profile? found;
   bool searching = false;
+  bool lookupFailed = false;
+  int lookupRequest = 0;
   bool busy = false;
   final selected = <String, Profile>{};
   Timer? debounce;
@@ -33,6 +36,10 @@ class _NewChatScreenState extends State<NewChatScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialQuery.isNotEmpty) {
+      search.text = widget.initialQuery;
+      lookup(search.text);
+    }
     api.get('/users/me/contacts').then((r) {
       if (mounted) setState(() => contacts = (r['contacts'] as List).map((u) => Profile(u as Json)).toList());
     }).catchError((_) {});
@@ -47,18 +54,24 @@ class _NewChatScreenState extends State<NewChatScreen> {
   }
 
   void lookup(String raw) {
-    final username = raw.trim().toLowerCase().replaceFirst('@', '');
+    final username = raw.trim().toLowerCase().replaceFirst(RegExp(r'^@'), '');
+    final request = ++lookupRequest;
+    final valid = RegExp(r'^[a-z0-9._]{3,32}$').hasMatch(username);
     debounce?.cancel();
-    setState(() => found = null);
-    if (username.length < 3) return;
-    setState(() => searching = true);
+    setState(() {
+      found = null;
+      lookupFailed = false;
+      searching = valid;
+    });
+    if (!valid) return;
     debounce = Timer(const Duration(milliseconds: 350), () async {
       try {
         final result = await api.get('/users/by-username/${Uri.encodeComponent(username)}');
-        if (mounted && search.text.trim().toLowerCase().replaceFirst('@', '') == username) setState(() => found = Profile(result['user'] as Json));
-      } catch (_) {
+        if (mounted && request == lookupRequest) setState(() => found = Profile(result['user'] as Json));
+      } catch (error) {
+        if (mounted && request == lookupRequest && (error is! ApiError || error.status != 404)) setState(() => lookupFailed = true);
       } finally {
-        if (mounted) setState(() => searching = false);
+        if (mounted && request == lookupRequest) setState(() => searching = false);
       }
     });
   }
@@ -100,10 +113,10 @@ class _NewChatScreenState extends State<NewChatScreen> {
   Widget build(BuildContext context) {
     final t = context.watch<Prefs>().t;
     final p = context.palette;
-    final query = search.text.trim().toLowerCase().replaceFirst('@', '');
+    final query = search.text.trim().toLowerCase().replaceFirst(RegExp(r'^@'), '');
     final people = [
-      if (found != null && !contacts.any((c) => c.id == found!.id)) found!,
-      ...contacts.where((c) => query.isEmpty || c.name.toLowerCase().contains(query) || c.username.contains(query)),
+      ?found,
+      ...contacts.where((c) => c.id != found?.id && (query.isEmpty || c.name.toLowerCase().contains(query) || c.username.contains(query))),
     ];
     return Scaffold(
       appBar: AppBar(title: Text(widget.group ? t('নতুন গ্রুপ', 'New group') : t('নতুন চ্যাট', 'New chat'))),
@@ -174,6 +187,13 @@ class _NewChatScreenState extends State<NewChatScreen> {
             onTap: () => Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const NewChatScreen(group: true))),
           ),
         if (busy && !widget.group) const LinearProgressIndicator(),
+        if (query.length >= 3 && !searching && people.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: lookupFailed
+                ? TextButton(onPressed: () => lookup(search.text), child: Text(t('খোঁজা যায়নি, আবার চেষ্টা করুন', 'Search failed. Try again')))
+                : Text(t('এই ইউজারনেমে কাউকে পাওয়া যায়নি', 'No one found with this username'), textAlign: TextAlign.center),
+          ),
         Expanded(
           child: ListView.builder(
             itemCount: people.length,

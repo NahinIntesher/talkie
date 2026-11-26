@@ -231,6 +231,8 @@ export interface WireMessage {
   nonce: string | null;
   /** The message key sealed for the requesting device; null when this device was linked after the message. */
   sealedKey: string | null;
+  /** The account's device that transferred this key, when different from the original sender. */
+  keySenderDeviceId?: string;
   systemEvent: SystemEvent | null;
   replyToId: string | null;
   forwardedCount: number;

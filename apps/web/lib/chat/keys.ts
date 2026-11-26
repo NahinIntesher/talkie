@@ -44,12 +44,13 @@ let current: { deviceId: string; pair: e2ee.DeviceKeyPair } | null = null;
 export async function ensureDeviceKeys(deviceId: string): Promise<{ deviceId: string; pair: e2ee.DeviceKeyPair }> {
   if (current?.deviceId === deviceId) return current;
   await e2ee.ready();
-  let pair = await read(deviceId).catch(() => undefined);
+  let pair = await read(deviceId);
   if (!pair) {
     pair = e2ee.generateDeviceKeys();
     await write(deviceId, pair);
     await api('/auth/devices/current/identity-key', { method: 'PUT', body: { identityKey: pair.publicKey } });
   }
+  rememberKeys([{ deviceId, identityKey: pair.publicKey }]);
   current = { deviceId, pair };
   return current;
 }
@@ -59,21 +60,29 @@ export const deviceKeys = () => current;
 // ───────── Other devices' public keys ─────────
 
 const publicKeys = new Map<string, string>();
+const keyOwners = new Map<string, string>();
 const pending = new Map<string, Promise<void>>();
 
-export function rememberKeys(devices: Array<{ deviceId: string; identityKey: string }>) {
-  for (const device of devices) publicKeys.set(device.deviceId, device.identityKey);
+export function rememberKeys(devices: Array<{ deviceId: string; identityKey: string; userId?: string }>) {
+  for (const device of devices) {
+    publicKeys.set(device.deviceId, device.identityKey);
+    if (device.userId) keyOwners.set(device.deviceId, device.userId);
+  }
 }
 
+export const isKeyOwner = (deviceId: string, userId: string) => keyOwners.get(deviceId) === userId;
+
 /** Public keys for the given sender devices, fetched in one request for the ones not cached yet. */
-export async function senderKeys(deviceIds: string[]): Promise<Map<string, string>> {
-  const missing = [...new Set(deviceIds)].filter((id) => !publicKeys.has(id) && !pending.has(id));
-  if (missing.length) {
-    const request = api<{ devices: Array<{ deviceId: string; identityKey: string }> }>('/auth/device-keys/lookup', { method: 'POST', body: { deviceIds: missing.slice(0, 200) } })
+export async function senderKeys(deviceIds: string[], ownerRequired: ReadonlySet<string> = new Set()): Promise<Map<string, string>> {
+  const unique = [...new Set(deviceIds)];
+  const missing = unique.filter((id) => (!publicKeys.has(id) || (ownerRequired.has(id) && !keyOwners.has(id))) && !pending.has(id));
+  for (let offset = 0; offset < missing.length; offset += 200) {
+    const batch = missing.slice(offset, offset + 200);
+    const request = api<{ devices: Array<{ deviceId: string; userId: string; identityKey: string }> }>('/auth/device-keys/lookup', { method: 'POST', body: { deviceIds: batch } })
       .then(({ devices }) => rememberKeys(devices))
-      .finally(() => missing.forEach((id) => pending.delete(id)));
-    missing.forEach((id) => pending.set(id, request));
+      .finally(() => batch.forEach((id) => pending.delete(id)));
+    batch.forEach((id) => pending.set(id, request));
   }
-  await Promise.all([...new Set(deviceIds)].map((id) => pending.get(id)).filter(Boolean));
+  await Promise.all(unique.map((id) => pending.get(id)).filter(Boolean));
   return publicKeys;
 }

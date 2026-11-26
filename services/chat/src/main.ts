@@ -7,6 +7,7 @@ import { activeMemberIds, deviceDirectory, emit, mediaClient, systemMessage, use
 import { registerStatusRoutes } from './status.ts';
 import { registerConversationRoutes } from './conversations.ts';
 import { registerMessageRoutes } from './messages.ts';
+import { registerHistoryRoutes } from './history.ts';
 import { registerAdminRoutes } from './admin.ts';
 
 const env = loadConfig({
@@ -29,6 +30,7 @@ const ctx: Context = { db, ids, relay, guards, env, devices: deviceDirectory(env
 
 registerConversationRoutes(service.app, ctx);
 registerMessageRoutes(service.app, ctx);
+registerHistoryRoutes(service.app, ctx);
 registerStatusRoutes(service.app, ctx);
 registerAdminRoutes(service.app, ctx);
 

@@ -84,9 +84,8 @@ class Meeting extends ChangeNotifier {
   }
 
   Future<void> join() async {
-    final asked = await [Permission.microphone, Permission.camera].request();
-    if (!(asked[Permission.microphone]?.isGranted ?? false)) micOn = false;
-    if (!(asked[Permission.camera]?.isGranted ?? false)) camOn = false;
+    if (micOn && !(await Permission.microphone.request()).isGranted) micOn = false;
+    if (camOn && !(await Permission.camera.request()).isGranted) camOn = false;
     phase = MeetPhase.joining;
     error = null;
     _changed();
@@ -232,6 +231,7 @@ class Meeting extends ChangeNotifier {
 
   Future<void> toggleMic() async {
     final next = !micOn;
+    if (next && !(await Permission.microphone.request()).isGranted) return;
     try {
       await room?.localParticipant?.setMicrophoneEnabled(next);
       micOn = next;
