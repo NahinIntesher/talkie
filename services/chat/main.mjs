@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);
 
 // services/chat/src/main.ts
-import { z as z7 } from "zod";
+import { z as z8 } from "zod";
 
 // packages/core/src/config.ts
 import { existsSync, readFileSync } from "node:fs";
@@ -359,17 +359,17 @@ async function writeOutbox(tx, event) {
 import mysql from "mysql2/promise";
 
 // packages/db/src/index.ts
-var wrap = (target, rewrite) => ({
+var wrap = (target2, rewrite) => ({
   async query(sql, params = []) {
-    const [rows] = await target.execute(rewrite(sql), params);
+    const [rows] = await target2.execute(rewrite(sql), params);
     return rows;
   },
   async one(sql, params = []) {
-    const [rows] = await target.execute(rewrite(sql), params);
+    const [rows] = await target2.execute(rewrite(sql), params);
     return rows[0];
   },
   async run(sql, params = []) {
-    const [result] = await target.execute(rewrite(sql), params);
+    const [result] = await target2.execute(rewrite(sql), params);
     return result;
   }
 });
@@ -763,14 +763,14 @@ function deviceDirectory(env2) {
   const cache = /* @__PURE__ */ new Map();
   const TTL = 3e4;
   return {
-    async forUsers(userIds) {
+    async forUsers(userIds, fresh = false) {
       const unique = [...new Set(userIds)];
       const now = Date.now();
-      const missing = unique.filter((id2) => (cache.get(id2)?.at ?? 0) + TTL < now);
+      const missing = unique.filter((id2) => fresh || (cache.get(id2)?.at ?? 0) + TTL < now);
       for (let offset = 0; offset < missing.length; offset += 1e3) {
-        const batch = missing.slice(offset, offset + 1e3);
-        const { devices } = await internal(env2, `${env2.AUTH_URL}/internal/device-keys`, { userIds: batch });
-        for (const id2 of batch) cache.set(id2, { at: now, devices: [] });
+        const batch2 = missing.slice(offset, offset + 1e3);
+        const { devices } = await internal(env2, `${env2.AUTH_URL}/internal/device-keys`, { userIds: batch2 });
+        for (const id2 of batch2) cache.set(id2, { at: now, devices: [] });
         for (const device2 of devices) cache.get(device2.userId)?.devices.push(device2);
       }
       return unique.flatMap((id2) => cache.get(id2)?.devices ?? []);
@@ -809,7 +809,7 @@ async function systemMessage(tx, ctx2, conversationId, actor, event) {
   );
   return id2;
 }
-var MESSAGE_COLUMNS = `m.id, m.conversation_id, m.sender_id, m.sender_device_id, m.kind, m.ciphertext, m.nonce, k.sealed_key,
+var MESSAGE_COLUMNS = `m.id, m.conversation_id, m.sender_id, m.sender_device_id, m.kind, m.ciphertext, m.nonce, k.sealed_key, k.wrap_device_id,
   m.system_event, m.reply_to_id, m.forwarded_count, m.edited_at, m.deleted_at, m.expires_at, m.created_at`;
 async function toWire(db2, rows, viewerId) {
   if (!rows.length) return [];
@@ -842,6 +842,7 @@ async function toWire(db2, rows, viewerId) {
       ciphertext: row.ciphertext ? row.ciphertext.toString("base64url") : null,
       nonce: row.nonce ? row.nonce.toString("base64url") : null,
       sealedKey: row.sealed_key ? row.sealed_key.toString("base64url") : null,
+      ...row.wrap_device_id ? { keySenderDeviceId: row.wrap_device_id } : {},
       systemEvent: row.system_event ? JSON.parse(row.system_event) : null,
       replyToId: row.reply_to_id,
       forwardedCount: row.forwarded_count,
@@ -1080,12 +1081,12 @@ function registerStatusRoutes(app, ctx2) {
         new Date(Date.now() + STATUS_TTL_MS)
       ]);
       for (let offset = 0; offset < allowed.length; offset += 500) {
-        const batch = allowed.slice(offset, offset + 500);
-        await tx.run(`INSERT INTO status_audience (status_id, user_id) VALUES ${batch.map(() => "(?, ?)").join(",")}`, batch.flatMap((user) => [id2, user]));
+        const batch2 = allowed.slice(offset, offset + 500);
+        await tx.run(`INSERT INTO status_audience (status_id, user_id) VALUES ${batch2.map(() => "(?, ?)").join(",")}`, batch2.flatMap((user) => [id2, user]));
       }
       for (let offset = 0; offset < keys.length; offset += 500) {
-        const batch = keys.slice(offset, offset + 500);
-        await tx.run(`INSERT INTO status_keys (status_id, device_id, sealed_key) VALUES ${batch.map(() => "(?, ?, ?)").join(",")}`, batch.flatMap((key) => [id2, key.deviceId, decode(key.sealedKey)]));
+        const batch2 = keys.slice(offset, offset + 500);
+        await tx.run(`INSERT INTO status_keys (status_id, device_id, sealed_key) VALUES ${batch2.map(() => "(?, ?, ?)").join(",")}`, batch2.flatMap((key) => [id2, key.deviceId, decode(key.sealedKey)]));
       }
       await emit(tx, ctx2, "status.updated", id2, [me.userId, ...allowed], { statusId: id2, ownerId: me.userId, change: "posted" });
     });
@@ -1412,8 +1413,8 @@ function registerConversationRoutes(app, ctx2) {
     const leaving = userId === me.userId;
     if (!leaving) {
       if (!isAdmin(member)) fail("forbidden", "Only group admins can remove members.");
-      const target = await membership(db2, id2, userId);
-      if (target.role === "owner") fail("forbidden", "The group owner cannot be removed.");
+      const target2 = await membership(db2, id2, userId);
+      if (target2.role === "owner") fail("forbidden", "The group owner cannot be removed.");
     }
     await db2.tx(async (tx) => {
       const before = await activeMemberIds(tx, id2);
@@ -1437,9 +1438,9 @@ function registerConversationRoutes(app, ctx2) {
     const { role } = z4.object({ role: z4.enum(["admin", "member"]) }).parse(request.body);
     const member = await membership(db2, id2, me.userId);
     if (!isAdmin(member)) fail("forbidden", "Only group admins can change roles.");
-    const target = await membership(db2, id2, userId);
-    if (target.role === "owner") fail("forbidden", "The group owner\u2019s role cannot be changed.");
-    if (target.role === role) return { ok: true };
+    const target2 = await membership(db2, id2, userId);
+    if (target2.role === "owner") fail("forbidden", "The group owner\u2019s role cannot be changed.");
+    if (target2.role === role) return { ok: true };
     await db2.tx(async (tx) => {
       await tx.run("UPDATE conversation_members SET role = ? WHERE conversation_id = ? AND user_id = ?", [role, id2, userId]);
       await systemMessage(tx, ctx2, id2, me, { type: role === "admin" ? "admin_promoted" : "admin_demoted", actorId: me.userId, targetIds: [userId] });
@@ -1627,10 +1628,10 @@ function registerMessageRoutes(app, ctx2) {
   };
   const insertKeys = async (tx, messageId, keys) => {
     for (let offset = 0; offset < keys.length; offset += 500) {
-      const batch = keys.slice(offset, offset + 500);
+      const batch2 = keys.slice(offset, offset + 500);
       await tx.run(
-        `INSERT INTO message_keys (message_id, device_id, sealed_key) VALUES ${batch.map(() => "(?, ?, ?)").join(",")}`,
-        batch.flatMap((key) => [messageId, key.deviceId, decode(key.sealedKey)])
+        `INSERT INTO message_keys (message_id, device_id, sealed_key) VALUES ${batch2.map(() => "(?, ?, ?)").join(",")}`,
+        batch2.flatMap((key) => [messageId, key.deviceId, decode(key.sealedKey)])
       );
     }
   };
@@ -1891,8 +1892,8 @@ function registerMessageRoutes(app, ctx2) {
   });
   const advance = async (conversationId, me, messageId, read) => {
     const member = await membership(db2, conversationId, me.userId, false);
-    const target = await db2.one("SELECT id FROM messages WHERE id = ? AND conversation_id = ?", [messageId, conversationId]);
-    if (!target) fail("not_found", "Message not found.");
+    const target2 = await db2.one("SELECT id FROM messages WHERE id = ? AND conversation_id = ?", [messageId, conversationId]);
+    if (!target2) fail("not_found", "Message not found.");
     const changed = await db2.tx(async (tx) => {
       const result = read ? await tx.run(
         `UPDATE conversation_members SET last_read_message_id = GREATEST(last_read_message_id, ?),
@@ -1932,12 +1933,79 @@ function registerMessageRoutes(app, ctx2) {
   });
 }
 
-// services/chat/src/admin.ts
+// services/chat/src/history.ts
 import { z as z6 } from "zod";
+var BATCH_SIZE = 100;
+var target = z6.object({ deviceId: id, identityKey: publicKey });
+var batch = z6.object({
+  target,
+  keys: z6.array(z6.object({
+    messageId: id,
+    nonce: z6.string().regex(/^[A-Za-z0-9_-]{32}$/),
+    sealedKey: z6.string().regex(/^[A-Za-z0-9_-]{96}$/)
+  })).min(1).max(BATCH_SIZE)
+});
+var ELIGIBLE = `FROM message_keys source
+  JOIN messages m ON m.id = source.message_id
+  JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.user_id = ?
+  WHERE source.device_id = ? AND m.ciphertext IS NOT NULL AND m.nonce IS NOT NULL
+    AND m.deleted_at IS NULL AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP(3))
+    AND m.id >= cm.cleared_before_message_id AND m.created_at >= cm.joined_at
+    AND (cm.left_at IS NULL OR m.created_at <= cm.left_at)
+    AND NOT EXISTS (SELECT 1 FROM message_hidden h WHERE h.user_id = cm.user_id AND h.message_id = m.id)`;
+function registerHistoryRoutes(app, { db: db2, devices, guards: guards2 }) {
+  const auth = { preHandler: guards2.requireAuth };
+  const verifyDevices = async (me, destination) => {
+    const owned = await devices.forUsers([me.userId], true);
+    if (destination.deviceId === me.deviceId || !owned.some((d) => d.deviceId === me.deviceId) || !owned.some((d) => d.deviceId === destination.deviceId && d.identityKey === destination.identityKey))
+      fail("forbidden", "History can only be transferred between your active devices.");
+  };
+  app.get("/chat/history/transfer", auth, async (request) => {
+    const me = caller(request);
+    const query = target.extend({ before: id.optional() }).parse(request.query);
+    await verifyDevices(me, query);
+    const rows = await db2.query(
+      `SELECT m.id, m.nonce, COALESCE(source.wrap_device_id, m.sender_device_id) AS key_sender, source.sealed_key
+       ${ELIGIBLE}
+       AND NOT EXISTS (SELECT 1 FROM message_keys destination WHERE destination.message_id = m.id AND destination.device_id = ?)
+       ${query.before ? "AND source.message_id < ?" : ""}
+       ORDER BY source.message_id DESC LIMIT ${BATCH_SIZE}`,
+      [me.userId, me.deviceId, query.deviceId, ...query.before ? [query.before] : []]
+    );
+    return {
+      keys: rows.map((row) => ({ messageId: row.id, nonce: row.nonce.toString("base64url"), keySenderDeviceId: row.key_sender, sealedKey: row.sealed_key.toString("base64url") })),
+      nextBefore: rows.length === BATCH_SIZE ? rows.at(-1).id : null
+    };
+  });
+  app.post("/chat/history/transfer", auth, async (request) => {
+    const me = caller(request);
+    const input = batch.parse(request.body);
+    await verifyDevices(me, input.target);
+    const submitted = new Map(input.keys.map((key) => [key.messageId, key]));
+    const added = await db2.tx(async (tx) => {
+      const rows = await tx.query(
+        `SELECT m.id, m.nonce ${ELIGIBLE} AND m.id IN (${[...submitted].map(() => "?").join(",")}) ORDER BY m.id FOR UPDATE`,
+        [me.userId, me.deviceId, ...submitted.keys()]
+      );
+      const valid = rows.filter((row) => row.nonce.toString("base64url") === submitted.get(row.id).nonce);
+      if (!valid.length) return 0;
+      const result = await tx.run(
+        `INSERT IGNORE INTO message_keys (message_id, device_id, sealed_key, wrap_device_id)
+         VALUES ${valid.map(() => "(?, ?, ?, ?)").join(",")}`,
+        valid.flatMap(({ id: messageId }) => [messageId, input.target.deviceId, Buffer.from(submitted.get(messageId).sealedKey, "base64url"), me.deviceId])
+      );
+      return result.affectedRows;
+    });
+    return { added };
+  });
+}
+
+// services/chat/src/admin.ts
+import { z as z7 } from "zod";
 function registerAdminRoutes(app, { db: db2, guards: guards2 }) {
   const internal2 = { preHandler: guards2.requireInternal };
   app.get("/internal/admin/stats", internal2, async (request) => {
-    const { days } = z6.object({ days: z6.coerce.number().int().min(7).max(90).default(30) }).parse(request.query);
+    const { days } = z7.object({ days: z7.coerce.number().int().min(7).max(90).default(30) }).parse(request.query);
     const from = Snowflake.floor(seriesStart(days));
     const today = Snowflake.floor(seriesStart(1));
     const [conversations, messages, daily, statuses] = await Promise.all([
@@ -1963,7 +2031,7 @@ function registerAdminRoutes(app, { db: db2, guards: guards2 }) {
     };
   });
   app.get("/internal/admin/users/:userId", internal2, async (request) => {
-    const { userId } = z6.object({ userId: id }).parse(request.params);
+    const { userId } = z7.object({ userId: id }).parse(request.params);
     const [membership2, sent] = await Promise.all([
       db2.one(
         `SELECT COALESCE(SUM(c.kind = 'direct'), 0) AS direct, COALESCE(SUM(c.kind = 'group'), 0) AS \`groups\`,
@@ -1986,7 +2054,7 @@ function registerAdminRoutes(app, { db: db2, guards: guards2 }) {
     };
   });
   app.get("/internal/admin/groups/:id", internal2, async (request) => {
-    const { id: id2 } = z6.object({ id }).parse(request.params);
+    const { id: id2 } = z7.object({ id }).parse(request.params);
     const group = await db2.one(
       `SELECT g.name, g.description, c.created_by, c.created_at,
               (SELECT COUNT(*) FROM conversation_members m WHERE m.conversation_id = c.id AND m.left_at IS NULL) AS members
@@ -2000,12 +2068,12 @@ function registerAdminRoutes(app, { db: db2, guards: guards2 }) {
 
 // services/chat/src/main.ts
 var env = loadConfig({
-  PORT: z7.coerce.number().int().positive().default(4103),
-  DB_NAME: z7.string().default("talkie_chat"),
-  USERS_URL: z7.url().default("http://127.0.0.1:4102"),
-  AUTH_URL: z7.url().default("http://127.0.0.1:4101"),
-  MEDIA_PUBLIC_URL: z7.string().default("/api/media"),
-  MEDIA_URL: z7.url().default("http://127.0.0.1:4105")
+  PORT: z8.coerce.number().int().positive().default(4103),
+  DB_NAME: z8.string().default("talkie_chat"),
+  USERS_URL: z8.url().default("http://127.0.0.1:4102"),
+  AUTH_URL: z8.url().default("http://127.0.0.1:4101"),
+  MEDIA_PUBLIC_URL: z8.string().default("/api/media"),
+  MEDIA_URL: z8.url().default("http://127.0.0.1:4105")
 });
 var db = connectDatabase(env, env.DB_NAME);
 var service = await createService({ name: "chat", env, ready: () => db.ping(), rateLimitPerMinute: 600, bodyLimit: 4 * 1024 * 1024 });
@@ -2016,6 +2084,7 @@ var relay = startOutboxRelay(db, bus, service.log);
 var ctx = { db, ids, relay, guards, env, devices: deviceDirectory(env), users: usersClient(env), media: mediaClient(env) };
 registerConversationRoutes(service.app, ctx);
 registerMessageRoutes(service.app, ctx);
+registerHistoryRoutes(service.app, ctx);
 registerStatusRoutes(service.app, ctx);
 registerAdminRoutes(service.app, ctx);
 bus.subscribe("chat-devices", ["device.linked", "device.revoked"], async (event) => {
