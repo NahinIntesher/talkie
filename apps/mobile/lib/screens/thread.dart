@@ -10,7 +10,9 @@ import '../ui/format.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
 import 'bubble.dart';
+import '../core/api.dart';
 import 'composer.dart';
+import 'info.dart';
 
 class ThreadScreen extends StatefulWidget {
   const ThreadScreen({super.key, required this.conversationId});
@@ -79,7 +81,10 @@ class _ThreadScreenState extends State<ThreadScreen> {
         titleSpacing: 0,
         title: c == null
             ? const SizedBox.shrink()
-            : Row(children: [
+            : GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _openInfo,
+                child: Row(children: [
                 Avatar(name: title, url: chat.avatarOf(c), size: 40, group: c.isGroup && chat.avatarOf(c) == null),
                 const SizedBox(width: 12),
                 Expanded(
@@ -90,11 +95,13 @@ class _ThreadScreenState extends State<ThreadScreen> {
                   ]),
                 ),
               ]),
+              ),
         actions: [
           if (c != null && c.active) ...[
             IconButton(icon: const Icon(LucideIcons.video), onPressed: () => callHook?.call(context, c, true)),
             IconButton(icon: const Icon(LucideIcons.phone), onPressed: () => callHook?.call(context, c, false)),
           ],
+          if (c != null) IconButton(icon: const Icon(LucideIcons.ellipsisVertical), onPressed: () => _chatMenu(c)),
         ],
       ),
       body: Column(children: [
@@ -164,6 +171,107 @@ class _ThreadScreenState extends State<ThreadScreen> {
     );
   }
 
+  void _openInfo() => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ConversationInfoScreen(conversationId: widget.conversationId)));
+
+  Future<void> _guard(Future<void> Function() action) async {
+    try {
+      await action();
+    } catch (error) {
+      if (mounted) showMessage(context, error is ApiError ? error.message : context.read<Prefs>().t('কিছু একটা সমস্যা হয়েছে।', 'Something went wrong.'), error: true);
+    }
+  }
+
+  void _chatMenu(Conversation c) {
+    final t = context.read<Prefs>().t;
+    final muted = c.mutedUntil != null;
+    final navigator = Navigator.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheet) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            _item(sheet, LucideIcons.users, c.isGroup ? t('গ্রুপের তথ্য', 'Group info') : t('কন্টাক্টের তথ্য', 'Contact info'), _openInfo),
+            _item(sheet, muted ? LucideIcons.bellRing : LucideIcons.bellOff, muted ? t('আনমিউট', 'Unmute') : t('নোটিফিকেশন মিউট', 'Mute notifications'),
+                () => _guard(() => chat.updateSettings(c.id, {'mutedUntil': muted ? null : DateTime.now().add(const Duration(hours: 8)).toUtc().toIso8601String()}))),
+            _item(sheet, c.pinned ? LucideIcons.pinOff : LucideIcons.pin, c.pinned ? t('চ্যাট আনপিন', 'Unpin chat') : t('চ্যাট পিন', 'Pin chat'), () => _guard(() => chat.updateSettings(c.id, {'pinned': !c.pinned}))),
+            _item(sheet, c.archived ? LucideIcons.archiveRestore : LucideIcons.archive, c.archived ? t('আর্কাইভ থেকে সরান', 'Unarchive') : t('চ্যাট আর্কাইভ', 'Archive chat'), () => _guard(() async {
+                  final archiving = !c.archived;
+                  await chat.updateSettings(c.id, {'archived': archiving});
+                  if (archiving) navigator.pop();
+                })),
+            _item(sheet, LucideIcons.mailOpen, t('অপঠিত চিহ্নিত করুন', 'Mark as unread'), () => _guard(() async {
+                  await chat.updateSettings(c.id, {'markedUnread': true});
+                  navigator.pop();
+                })),
+            _item(sheet, LucideIcons.eraser, t('চ্যাট খালি করুন', 'Clear chat'), () async {
+              if (await _confirm(t('চ্যাট খালি করবেন?', 'Clear this chat?'), t('খালি করুন', 'Clear'))) await _guard(() => chat.clearChat(c.id));
+            }, danger: true),
+            if (!c.isGroup || !c.active)
+              _item(sheet, LucideIcons.trash2, t('চ্যাট মুছুন', 'Delete chat'), () async {
+                if (!await _confirm(t('চ্যাটটি মুছবেন?', 'Delete this chat?'), t('মুছুন', 'Delete'))) return;
+                await _guard(() async {
+                  await chat.deleteConversation(c.id);
+                  navigator.pop();
+                });
+              }, danger: true),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _confirm(String title, String action) async {
+    final t = context.read<Prefs>().t;
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(title),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog), child: Text(t('বাতিল', 'Cancel'))),
+          TextButton(onPressed: () => Navigator.pop(dialog, true), child: Text(action, style: TextStyle(color: context.palette.danger))),
+        ],
+      ),
+    );
+    return yes == true;
+  }
+
+  Future<void> _info(ChatMessage m) async {
+    final t = context.read<Prefs>().t;
+    ({List<String> readBy, List<String> deliveredTo})? info;
+    await _guard(() async => info = await chat.messageInfo(m.id));
+    if (!mounted || info == null) return;
+    final p = context.palette;
+    Widget people(String label, List<String> ids, Color color) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, style: TextStyle(fontWeight: FontWeight.w800, color: color)),
+          const SizedBox(height: 6),
+          if (ids.isEmpty) Text('-', style: TextStyle(color: p.subtle)),
+          for (final id in ids)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(children: [
+                Avatar(name: chat.nameOf(id), url: chat.profiles[id]?.avatarUrl, size: 34),
+                const SizedBox(width: 10),
+                Expanded(child: Text(chat.nameOf(id), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600))),
+              ]),
+            ),
+        ]);
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (_) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(t('মেসেজের তথ্য', 'Message info'), style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 16),
+            people(t('পড়েছেন', 'Read by'), info!.readBy, Colors.lightBlue),
+            const SizedBox(height: 16),
+            people(t('পৌঁছেছে', 'Delivered to'), info!.deliveredTo, p.muted),
+          ]),
+        ),
+      ),
+    );
+  }
+
   void _actions(ChatMessage m) {
     final t = context.read<Prefs>().t;
     final mine = m.senderId == chat.me;
@@ -227,6 +335,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
                 editing = m;
                 replyTo = null;
               })),
+          if (mine) _item(sheet, LucideIcons.info, t('তথ্য', 'Info'), () => _info(m)),
           _item(sheet, m.starred ? LucideIcons.starOff : LucideIcons.star, m.starred ? t('তারকা সরান', 'Unstar') : t('তারকা দিন', 'Star'), () => chat.star(widget.conversationId, m.id, !m.starred)),
           _item(sheet, pinned ? LucideIcons.pinOff : LucideIcons.pin, pinned ? t('পিন সরান', 'Unpin') : t('পিন করুন', 'Pin'), () => chat.pin(widget.conversationId, m.id, !pinned)),
           _item(sheet, LucideIcons.trash2, t('মুছুন', 'Delete'), () => _delete(m, mine), danger: true),
@@ -249,7 +358,8 @@ class _ThreadScreenState extends State<ThreadScreen> {
 
   Future<void> _delete(ChatMessage m, bool mine) async {
     final t = context.read<Prefs>().t;
-    final forEveryone = mine && DateTime.now().difference(m.time).inHours < 48;
+    final c = chat.conversations[widget.conversationId];
+    final forEveryone = mine ? DateTime.now().difference(m.time).inHours < 48 : (c?.isGroup == true && c!.isAdmin);
     final scope = await showDialog<String>(
       context: context,
       builder: (dialog) => AlertDialog(

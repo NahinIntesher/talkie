@@ -557,6 +557,92 @@ class Chat extends ChangeNotifier {
     await _storeSummaries([result['conversation'] as Json]);
   }
 
+  /// Removes a chat from this device (deleted, or gone).
+  void _forget(String conversationId) {
+    conversations.remove(conversationId);
+    threads.remove(conversationId);
+    if (activeId == conversationId) activeId = null;
+    _changed();
+  }
+
+  /// "Clear chat": hides all messages up to now, for me only.
+  Future<void> clearChat(String conversationId) async {
+    await api.post('/chat/conversations/$conversationId/clear');
+    threads[conversationId]?.items.clear();
+    conversations[conversationId]?.last = null;
+    _changed();
+    await loadOlder(conversationId, initial: true);
+  }
+
+  /// "Delete chat": clears it for me and removes it from my list until someone writes again.
+  Future<void> deleteConversation(String conversationId) async {
+    await api.delete('/chat/conversations/$conversationId');
+    _forget(conversationId);
+  }
+
+  Future<void> setDisappearing(String conversationId, int? seconds) async {
+    await api.put('/chat/conversations/$conversationId/disappearing', {'seconds': seconds});
+    await reload(conversationId);
+  }
+
+  Future<void> updateGroup(String conversationId, Json changes) async {
+    await api.patch('/chat/groups/$conversationId', changes);
+    await reload(conversationId);
+  }
+
+  Future<void> addMembers(String conversationId, List<String> userIds) async {
+    await api.post('/chat/groups/$conversationId/members', {'userIds': userIds});
+    await reload(conversationId);
+  }
+
+  Future<void> setRole(String conversationId, String userId, String role) async {
+    await api.put('/chat/groups/$conversationId/members/$userId/role', {'role': role});
+    await reload(conversationId);
+  }
+
+  /// Removes a member; with my own id this is "Exit group".
+  Future<void> removeMember(String conversationId, String userId) async {
+    await api.delete('/chat/groups/$conversationId/members/$userId');
+    await reload(conversationId);
+  }
+
+  Future<String> inviteLink(String conversationId) async {
+    final result = await api.post('/chat/groups/$conversationId/invite-link');
+    return result['code'] as String;
+  }
+
+  Future<void> setBlocked(String userId, bool blocked) async {
+    if (blocked) {
+      await api.put('/users/me/blocks/$userId');
+    } else {
+      await api.delete('/users/me/blocks/$userId');
+    }
+    await refreshProfile(userId);
+  }
+
+  Future<void> report(String userId, String reason, String note, bool block) async {
+    await api.post('/users/$userId/report', {'reason': reason, 'note': note, 'block': block});
+    if (block) await refreshProfile(userId);
+  }
+
+  /// Who read and who received one of my messages.
+  Future<({List<String> readBy, List<String> deliveredTo})> messageInfo(String messageId) async {
+    final result = await api.get('/chat/messages/$messageId/info');
+    final readBy = List<String>.from(result['readBy'] as List);
+    final deliveredTo = List<String>.from(result['deliveredTo'] as List);
+    await loadProfiles([...readBy, ...deliveredTo]);
+    return (readBy: readBy, deliveredTo: deliveredTo);
+  }
+
+  /// Safety number with the other person's first device, or null when they have no keys yet.
+  Future<String?> safetyNumber(String userId) async {
+    final mine = session.keys?.publicKey;
+    final result = await api.get('/auth/users/$userId/device-keys');
+    final devices = (result['devices'] as List).cast<Json>();
+    if (mine == null || devices.isEmpty) return null;
+    return Crypto.instance.safetyNumber(mine, devices.first['identityKey'] as String);
+  }
+
   // ───────── Live updates ─────────
 
   void _watchPresence() {
@@ -674,8 +760,10 @@ class Chat extends ChangeNotifier {
     });
 
     socket.on('chat:conversation', (raw) {
-      final conversationId = _asJson(raw)['conversationId'] as String;
+      final data = _asJson(raw);
+      final conversationId = data['conversationId'] as String;
       _deviceCache.remove(conversationId);
+      if (data['change'] == 'deleted') return _forget(conversationId);
       reload(conversationId).then((_) {
         if (threads[conversationId]?.loaded == true) _loadNewer(conversationId);
       });

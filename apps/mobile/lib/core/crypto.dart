@@ -157,6 +157,14 @@ class Crypto {
     }
   }
 
+  /// Short fingerprint of two devices' keys for comparing in person (same as the web's safetyNumber).
+  String safetyNumber(String a, String b) {
+    final keys = [a, b]..sort();
+    final digest = sodium.crypto.genericHash(message: Uint8List.fromList(utf8.encode('${keys[0]}:${keys[1]}')), outLen: 30);
+    final digits = digest.map((byte) => (byte % 100).toString().padLeft(2, '0')).join().substring(0, 60);
+    return [for (var i = 0; i < digits.length; i += 5) digits.substring(i, i + 5)].join(' ');
+  }
+
   /// 26-character id for idempotent sends (same alphabet as the web).
   String clientMessageId() {
     const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZabcdefghijkmnopqrstuvwxyz';

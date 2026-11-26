@@ -115,14 +115,26 @@ async function reloadConversation(conversationId: string) {
     deviceCache.delete(conversationId);
     return data;
   } catch (error) {
-    if (error instanceof ApiError && error.status === 404)
-      set((state) => {
-        const conversations = { ...state.conversations };
-        delete conversations[conversationId];
-        return { conversations, activeId: state.activeId === conversationId ? null : state.activeId };
-      });
+    if (error instanceof ApiError && error.status === 404) forgetConversation(conversationId);
     return null;
   }
+}
+
+/** Removes a chat from this device's list (it was deleted, or is gone). */
+function forgetConversation(conversationId: string) {
+  set((state) => {
+    const conversations = { ...state.conversations };
+    const threads = { ...state.threads };
+    delete conversations[conversationId];
+    delete threads[conversationId];
+    return { conversations, threads, activeId: state.activeId === conversationId ? null : state.activeId };
+  });
+}
+
+/** "Delete chat": clears it for me and removes it from my list until someone writes again. */
+export async function deleteConversation(conversationId: string) {
+  await api(`/chat/conversations/${conversationId}`, { method: 'DELETE' });
+  forgetConversation(conversationId);
 }
 
 export async function openConversation(conversationId: string | null) {
@@ -572,8 +584,9 @@ function bindRealtime() {
     set((state) => ({ receipts: { ...state.receipts, [conversationId]: receipts } }));
   });
 
-  on('chat:conversation', ({ conversationId }: { conversationId: string }) => {
+  on('chat:conversation', ({ conversationId, change }: { conversationId: string; change?: string }) => {
     deviceCache.delete(conversationId);
+    if (change === 'deleted') return forgetConversation(conversationId);
     void reloadConversation(conversationId).then(() => {
       if (get().threads[conversationId]?.loaded) void loadNewer(conversationId);
     });

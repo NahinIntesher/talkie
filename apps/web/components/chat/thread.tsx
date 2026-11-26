@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import clsx from 'clsx';
-import { Archive, ArrowLeft, BellOff, BellRing, ChevronDown, Eraser, MailOpen, MoreVertical, Phone, Pin, PinOff, Users, Video } from 'lucide-react';
+import { Archive, ArrowLeft, BellOff, BellRing, ChevronDown, Eraser, MailOpen, MoreVertical, Phone, Pin, PinOff, Trash2, Users, Video } from 'lucide-react';
 import { Avatar, Button, IconButton } from '@/components/ui/primitives';
 import { Dialog, Menu } from '@/components/ui/overlay';
 import { useToast } from '@/components/ui/toast';
@@ -32,6 +32,7 @@ export function Thread({ conversationId, onBack, onInfo }: { conversationId: str
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editing, setEditing] = useState<ChatMessage | null>(null);
   const [deleting, setDeleting] = useState<ChatMessage | null>(null);
+  const [deletingChat, setDeletingChat] = useState(false);
   const [info, setInfo] = useState<{ message: ChatMessage; readBy: string[]; deliveredTo: string[] } | null>(null);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [unreadMark, setUnreadMark] = useState<string | null>(null);
@@ -252,6 +253,9 @@ export function Thread({ conversationId, onBack, onInfo }: { conversationId: str
                 await engine.loadOlder(conversationId, true);
               },
             },
+            ...(conversation.kind === 'direct' || !conversation.active
+              ? [{ label: s.deleteChat, icon: <Trash2 />, danger: true, onSelect: () => setDeletingChat(true) }]
+              : []),
           ]}
         />
       </header>
@@ -415,6 +419,25 @@ export function Thread({ conversationId, onBack, onInfo }: { conversationId: str
             </Button>
           </div>
         )}
+      </Dialog>
+
+      {/* Delete chat */}
+      <Dialog open={deletingChat} onClose={() => setDeletingChat(false)} title={s.deleteChatConfirm}>
+        <div className="flex gap-2 px-5 pb-5">
+          <Button variant="outline" className="flex-1" onClick={() => setDeletingChat(false)}>
+            {s.cancel}
+          </Button>
+          <Button
+            variant="danger"
+            className="flex-1"
+            onClick={() => {
+              setDeletingChat(false);
+              void engine.deleteConversation(conversationId).then(onBack).catch(fail);
+            }}
+          >
+            {s.deleteChat}
+          </Button>
+        </div>
       </Dialog>
 
       {/* Message info */}

@@ -261,6 +261,30 @@ class _ChatRow extends StatelessWidget {
           ),
           _SheetAction(icon: c.archived ? LucideIcons.archiveRestore : LucideIcons.archive, label: c.archived ? t('আর্কাইভ থেকে সরান', 'Unarchive') : t('আর্কাইভ', 'Archive'), onTap: () => chat.updateSettings(c.id, {'archived': !c.archived})),
           _SheetAction(icon: LucideIcons.mailOpen, label: t('অপঠিত চিহ্নিত করুন', 'Mark as unread'), onTap: () => chat.updateSettings(c.id, {'markedUnread': true})),
+          if (!c.isGroup || !c.active)
+            _SheetAction(
+              icon: LucideIcons.trash2,
+              label: t('চ্যাট মুছুন', 'Delete chat'),
+              danger: true,
+              onTap: () async {
+                final yes = await showDialog<bool>(
+                  context: context,
+                  builder: (dialog) => AlertDialog(
+                    title: Text(t('চ্যাটটি মুছবেন?', 'Delete this chat?')),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(dialog), child: Text(t('বাতিল', 'Cancel'))),
+                      TextButton(onPressed: () => Navigator.pop(dialog, true), child: Text(t('মুছুন', 'Delete'), style: TextStyle(color: context.palette.danger))),
+                    ],
+                  ),
+                );
+                if (yes != true) return;
+                try {
+                  await chat.deleteConversation(c.id);
+                } catch (_) {
+                  if (context.mounted) showMessage(context, t('কিছু একটা সমস্যা হয়েছে।', 'Something went wrong.'), error: true);
+                }
+              },
+            ),
         ]),
       ),
     );
@@ -268,11 +292,11 @@ class _ChatRow extends StatelessWidget {
 }
 
 class _SheetAction extends StatelessWidget {
-  const _SheetAction({required this.icon, required this.label, required this.onTap});
+  const _SheetAction({required this.icon, required this.label, required this.onTap, this.danger = false});
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  final bool danger = false;
+  final bool danger;
   @override
   Widget build(BuildContext context) {
     final color = danger ? context.palette.danger : context.palette.text;
