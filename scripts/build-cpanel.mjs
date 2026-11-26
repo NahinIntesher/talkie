@@ -1,6 +1,8 @@
 // Builds the folder (and zip) to upload to cPanel → "Setup Node.js App". Run: npm run build:cpanel
 //   --skip-web    reuse the last Next.js build
 //   --no-zip      only the folder
+//   --code-only   no settings and no keys (GitHub Actions): the server keeps its own .env and secrets/, because
+//                 extracting the zip over the app folder only replaces the files the zip contains
 // Output: build/cpanel/ and build/talkie-cpanel.zip. Settings come from .env.hosted; the access-token key pair is
 // created once in secrets/hosted/ and reused, so a new upload does not sign everyone out.
 import { build } from 'esbuild';
@@ -19,7 +21,8 @@ const run = (command, commandArgs, cwd = root) => {
   if (result.status !== 0) throw new Error(`${command} ${commandArgs.join(' ')} failed`);
 };
 
-if (!existsSync(join(root, '.env.hosted'))) throw new Error('.env.hosted is missing');
+const codeOnly = args.has('--code-only');
+if (!codeOnly && !existsSync(join(root, '.env.hosted'))) throw new Error('.env.hosted is missing (or build with --code-only)');
 
 step('Bundling services');
 run('node', ['scripts/build-services.mjs']);
@@ -46,7 +49,7 @@ await build({
 });
 
 // Public web settings (NEXT_PUBLIC_*, e.g. the Firebase web-push key) are baked into the web build.
-for (const line of readFileSync(join(root, '.env.hosted'), 'utf8').split(/\r?\n/)) {
+for (const line of codeOnly ? [] : readFileSync(join(root, '.env.hosted'), 'utf8').split(/\r?\n/)) {
   const match = /^(NEXT_PUBLIC_[A-Z0-9_]+)=(.+)$/.exec(line);
   if (match) process.env[match[1]] = match[2].trim();
 }
@@ -101,6 +104,9 @@ writeFileSync(
 );
 console.log(`    ${Object.keys(dependencies).length} runtime packages: ${Object.keys(dependencies).join(', ')}`);
 
+if (codeOnly) {
+  console.log('    code only: no .env and no secrets/ in this build (the server keeps its own)');
+} else {
 // Access-token signing keys for the hosted site (never the development ones).
 const keys = join(root, 'secrets', 'hosted');
 mkdirSync(keys, { recursive: true });
@@ -120,6 +126,7 @@ for (const [key, value] of Object.entries({ BUS_DRIVER: 'process' })) {
 writeFileSync(join(out, '.env'), env, { mode: 0o600 });
 for (const key of ['SMTP_PASSWORD', 'LIVEKIT_API_SECRET', 'OWNER_EMAILS', 'DB_PASSWORD']) {
   if (!new RegExp(`^${key}=[^\\r\\n]+`, 'm').test(env)) console.log(`    \x1b[33mnote: ${key} is empty in .env.hosted (fine when it is set in cPanel)\x1b[0m`);
+}
 }
 
 if (!args.has('--no-zip')) {

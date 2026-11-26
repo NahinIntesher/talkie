@@ -19,7 +19,20 @@ const { pathToFileURL } = require('node:url');
 
 const ROOT = __dirname;
 const started = Date.now();
-const log = (...parts) => console.log(new Date().toISOString(), '[talkie]', ...parts);
+// Everything is also written to talkie.log in the app folder: LiteSpeed keeps only errors (stderr.log).
+const LOG_FILE = path.join(__dirname, 'talkie.log');
+try {
+  if (fs.statSync(LOG_FILE).size > 5 * 1024 * 1024) fs.renameSync(LOG_FILE, `${LOG_FILE}.1`);
+} catch {}
+const log = (...parts) => {
+  const line = [new Date().toISOString(), `[talkie:${process.argv.includes('--talkie-services') ? 'services' : process.argv.includes('--talkie-web') ? 'web' : 'gateway'}]`, ...parts.map((p) => (typeof p === 'string' ? p : String(p)))].join(' ');
+  console.log(line);
+  // Children's output is already redirected into talkie.log by the gateway; only the gateway appends itself.
+  if (process.argv.includes('--talkie-services') || process.argv.includes('--talkie-web')) return;
+  try {
+    fs.appendFileSync(LOG_FILE, `${line}\n`);
+  } catch {}
+};
 const MODE = process.argv.includes('--talkie-services') ? 'services' : process.argv.includes('--talkie-web') ? 'web' : 'gateway';
 
 // ───────── Settings: .env next to this file; values set in cPanel's interface win ─────────
@@ -95,7 +108,34 @@ const notFound = (res) => {
   res.end('{"error":{"code":"not_found","message":"Not found."}}');
 };
 
+/** GET /api/health: which parts are running (open it in a browser to check the install). */
+async function health(res) {
+  const probe = (port, path) =>
+    new Promise((resolve) => {
+      const request = http.get({ host: '127.0.0.1', port, path, timeout: 2500 }, (reply) => {
+        reply.resume();
+        resolve(reply.statusCode && reply.statusCode < 500 ? 'up' : `error ${reply.statusCode}`);
+      });
+      request.on('timeout', () => request.destroy());
+      request.on('error', () => resolve('down'));
+    });
+  const names = SERVICES.map(([name]) => name);
+  const results = await Promise.all([...names.map((name) => probe(port[name], '/healthz')), probe(port.web, '/')]);
+  const body = {
+    gateway: 'up',
+    host: typeof PhusionPassenger !== 'undefined' ? 'passenger' : 'litespeed-or-node',
+    uptimeSeconds: Math.round(process.uptime()),
+    services: Object.fromEntries(names.map((name, i) => [name, results[i]])),
+    web: results[names.length],
+    node: process.version,
+  };
+  const ok = Object.values(body.services).every((v) => v === 'up') && body.web === 'up';
+  res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+  res.end(JSON.stringify(body, null, 2));
+}
+
 const gateway = http.createServer((req, res) => {
+  if ((req.url || '').split('?')[0] === '/api/health') return void health(res);
   const target = route(req.url || '/');
   if (!target) return notFound(res);
   const upstream = http.request(
@@ -161,7 +201,13 @@ function childEnv(extra) {
 function keep(name, mode, env) {
   if (stopping) return;
   // The IPC channel lets the child notice when this process is gone, so it never outlives it holding the ports.
-  const child = spawn(process.execPath, [__filename, mode], { cwd: ROOT, env, stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
+  // Child output goes to talkie.log too.
+  let out = 'inherit';
+  try {
+    out = fs.openSync(LOG_FILE, 'a');
+  } catch {}
+  const child = spawn(process.execPath, [__filename, mode], { cwd: ROOT, env, stdio: ['ignore', out, out, 'ipc'] });
+  if (typeof out === 'number') fs.closeSync(out);
   children.add(child);
   child.on('exit', (code, signal) => {
     children.delete(child);

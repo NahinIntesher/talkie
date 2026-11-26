@@ -15,7 +15,8 @@ export const firebaseConfig = {
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_SENDER_ID ?? '766371327681',
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID ?? '1:766371327681:web:8ecc274b96ce747018ee40',
 };
-const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY ?? '';
+// Public web-push key (Firebase → Cloud Messaging → Web Push certificates). Public by design, like the config above.
+const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || 'BH8sTqI3L1gJdt0PImkoOxLuh5r5BxrhWQ1pvtLGR6-BkYMLX3NUoLwRSeKIT9RkFX5RupHQIcY-Tk8oTYUlx9o';
 
 const supported = () =>
   typeof window !== 'undefined' && !!vapidKey && 'serviceWorker' in navigator && 'PushManager' in window && typeof Notification !== 'undefined';

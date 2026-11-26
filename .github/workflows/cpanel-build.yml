@@ -1,0 +1,51 @@
+# Builds the cPanel upload on Linux (the same OS as the server) after every push to main.
+# Download it from: GitHub → Actions → "cPanel build" → the latest run → Artifacts → talkie-cpanel.
+# It holds code only: no .env and no secrets/ — the server keeps its own, because extracting the zip over the
+# app folder only replaces the files the zip contains. See docs/DEPLOY.md → "cPanel".
+name: cPanel build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cpanel-build
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: |
+          npm run typecheck
+          npm run typecheck -w @talkie/web
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build the cPanel bundle (code only)
+        run: node scripts/build-cpanel.mjs --code-only --no-zip
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: talkie-cpanel
+          path: build/cpanel
+          retention-days: 14
+          if-no-files-found: error
