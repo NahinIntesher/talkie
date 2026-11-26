@@ -5,31 +5,18 @@ import 'package:flutter/services.dart';
 import '../core/config.dart';
 import 'theme.dart';
 
-/// Talkie's mark: a speech bubble with a voice wave, on the brand gradient.
+/// The Talkie app icon (assets/brand/talkie-icon.png, made from assets/brand/talkie in the repository).
 class LogoMark extends StatelessWidget {
   const LogoMark({super.key, this.size = 40});
   final double size;
   @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(gradient: p.gradient, borderRadius: BorderRadius.circular(size * 0.28)),
-      child: Center(
-        child: Container(
-          width: size * 0.5,
-          height: size * 0.38,
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(size * 0.09)),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [0.5, 1.0, 0.4].map((h) => Container(width: size * 0.05, height: size * 0.2 * h, margin: EdgeInsets.symmetric(horizontal: size * 0.02), decoration: BoxDecoration(color: p.brand2, borderRadius: BorderRadius.circular(9)))).toList(),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Image.asset(
+        'assets/brand/talkie-icon.png',
+        width: size,
+        height: size,
+        filterQuality: FilterQuality.high,
+        semanticLabel: 'Talkie',
+      );
 }
 
 const _tones = [
@@ -98,10 +85,10 @@ class GradientButton extends StatelessWidget {
               height: 54,
               child: Center(
                 child: loading
-                    ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
+                    ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: Palette.onBrand))
                     : Row(mainAxisSize: MainAxisSize.min, children: [
-                        Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
-                        if (icon != null) ...[const SizedBox(width: 8), Icon(icon, color: Colors.white, size: 20)],
+                        Text(label, style: const TextStyle(color: Palette.onBrand, fontWeight: FontWeight.w800, fontSize: 16)),
+                        if (icon != null) ...[const SizedBox(width: 8), Icon(icon, color: Palette.onBrand, size: 20)],
                       ]),
               ),
             ),

@@ -3,12 +3,14 @@
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
 /* ───────── Design tokens ─────────
+   Brand colour: Talkie gold. --brand is the text/icon shade (deep gold on light, bright gold on dark);
+   --fill-* are the bright gold fills, which always carry the dark --on-brand text.
    One palette, two themes. Components use semantic names (surface, text-muted…) never raw colours,
    so light and dark stay consistent and contrast stays at WCAG AA or better. */
 :root {
   --bg: #f6f7fb;
-  --bg-glow-1: rgba(91, 91, 247, 0.16);
-  --bg-glow-2: rgba(236, 72, 153, 0.1);
+  --bg-glow-1: rgba(245, 158, 11, 0.16);
+  --bg-glow-2: rgba(234, 88, 12, 0.08);
   --surface: #ffffff;
   --surface-2: #f1f3f9;
   --surface-3: #e7eaf3;
@@ -18,33 +20,37 @@
   --text: #0e1222;
   --text-muted: #4a5170;
   --text-subtle: #737a96;
-  --brand: #5b5bf7;
-  --brand-strong: #4338ca;
-  --brand-2: #8b5cf6;
-  --accent: #ec4899;
-  --brand-soft: #eef0ff;
-  --on-brand: #ffffff;
+  --brand: #b45309;
+  --brand-strong: #92400e;
+  --brand-2: #d97706;
+  --accent: #ea580c;
+  --brand-soft: #fef3c7;
+  --on-brand: #1f1300;
   --success: #12a150;
   --success-soft: #e7f7ee;
   --danger: #dc2645;
   --danger-soft: #fdecef;
   --warning: #c27803;
-  --ring: rgba(91, 91, 247, 0.45);
-  --bubble-out: #5b5bf7;
-  --bubble-out-text: #ffffff;
-  --bubble-out-meta: rgba(255, 255, 255, 0.78);
+  --ring: rgba(217, 119, 6, 0.45);
+  --bubble-out: #fbbf24;
+  --bubble-out-text: #2a1700;
+  --bubble-out-meta: rgba(42, 23, 0, 0.62);
   --wallpaper: #eceef6;
-  --wallpaper-dot: rgba(91, 91, 247, 0.07);
+  --wallpaper-dot: rgba(217, 119, 6, 0.08);
   --shadow-sm: 0 1px 2px rgba(14, 18, 34, 0.06), 0 1px 1px rgba(14, 18, 34, 0.04);
   --shadow-md: 0 8px 24px -8px rgba(14, 18, 34, 0.14), 0 2px 6px rgba(14, 18, 34, 0.05);
   --shadow-lg: 0 30px 60px -20px rgba(30, 27, 75, 0.28), 0 10px 24px -12px rgba(14, 18, 34, 0.12);
+  /* Gold fills (buttons, badges): bright enough for the dark --on-brand text (contrast above 8:1). */
+  --fill-1: #fcc93a;
+  --fill-2: #f59e0b;
+  --fill-3: #e08a0b;
   color-scheme: light;
 }
 
 [data-theme='dark'] {
   --bg: #080a14;
-  --bg-glow-1: rgba(91, 91, 247, 0.22);
-  --bg-glow-2: rgba(236, 72, 153, 0.12);
+  --bg-glow-1: rgba(245, 158, 11, 0.16);
+  --bg-glow-2: rgba(234, 88, 12, 0.1);
   --surface: #10131f;
   --surface-2: #161a29;
   --surface-3: #1e2335;
@@ -54,26 +60,30 @@
   --text: #eef0f8;
   --text-muted: #a9b0cc;
   --text-subtle: #7f87a6;
-  --brand: #7c7cff;
-  --brand-strong: #a5a8ff;
-  --brand-2: #a78bfa;
-  --accent: #f472b6;
-  --brand-soft: #1b1d3d;
-  --on-brand: #ffffff;
+  --brand: #fbbf24;
+  --brand-strong: #fcd34d;
+  --brand-2: #f59e0b;
+  --accent: #fb923c;
+  --brand-soft: #2b2110;
+  --on-brand: #1f1300;
   --success: #34d27b;
   --success-soft: #0f2a1c;
   --danger: #ff5c7a;
   --danger-soft: #2f1219;
   --warning: #f5b544;
-  --ring: rgba(124, 124, 255, 0.55);
-  --bubble-out: #4f46e5;
+  --ring: rgba(251, 191, 36, 0.5);
+  --bubble-out: #b45309;
   --bubble-out-text: #ffffff;
-  --bubble-out-meta: rgba(255, 255, 255, 0.72);
+  --bubble-out-meta: rgba(255, 255, 255, 0.75);
   --wallpaper: #0b0e19;
-  --wallpaper-dot: rgba(124, 124, 255, 0.06);
+  --wallpaper-dot: rgba(251, 191, 36, 0.06);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
   --shadow-lg: 0 30px 70px -20px rgba(0, 0, 0, 0.75);
+  /* Gold fills (buttons, badges): bright enough for the dark --on-brand text (contrast above 8:1). */
+  --fill-1: #fcc93a;
+  --fill-2: #f59e0b;
+  --fill-3: #e08a0b;
   color-scheme: dark;
 }
 
@@ -147,7 +157,7 @@
     color: transparent;
   }
   .bg-brand-gradient {
-    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 55%, var(--accent) 130%);
+    background: linear-gradient(135deg, var(--fill-1) 0%, var(--fill-2) 55%, var(--fill-3) 110%);
   }
   .glass {
     background: var(--elevated);

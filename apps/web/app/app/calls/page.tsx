@@ -101,7 +101,7 @@ export default function CallsPage() {
         </div>
       </section>
       <section className="ambient hidden flex-1 flex-col items-center justify-center px-10 text-center md:flex">
-        <span className="bg-brand-gradient inline-flex size-24 items-center justify-center rounded-[2rem] text-white shadow-float">
+        <span className="bg-brand-gradient inline-flex size-24 items-center justify-center rounded-[2rem] text-on-brand shadow-float">
           <Phone className="size-11" aria-hidden />
         </span>
       </section>

@@ -144,7 +144,7 @@ export function RoleBadge({ role }: { role: string }) {
   const { locale } = useI18n();
   if (role === 'user') return null;
   return (
-    <span className={clsx('inline-flex h-6 shrink-0 items-center rounded-full px-2.5 text-xs font-bold', role === 'owner' ? 'bg-brand-gradient text-white' : 'bg-brand-soft text-brand')}>
+    <span className={clsx('inline-flex h-6 shrink-0 items-center rounded-full px-2.5 text-xs font-bold', role === 'owner' ? 'bg-brand-gradient text-on-brand' : 'bg-brand-soft text-brand')}>
       {adminStrings(locale).roles[role]}
     </span>
   );

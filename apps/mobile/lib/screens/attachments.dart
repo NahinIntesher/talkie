@@ -236,8 +236,8 @@ class _VoiceState extends State<_Voice> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final fg = widget.mine ? Colors.white : p.brand;
-    final dim = widget.mine ? Colors.white38 : p.surface3;
+    final fg = widget.mine ? p.bubbleOutText : p.brand;
+    final dim = widget.mine ? p.bubbleOutText.withValues(alpha: 0.38) : p.surface3;
     final bars = ((widget.attachment['waveform'] as List?) ?? List.filled(48, 30)).map((v) => (v as num).toDouble()).toList();
     final total = (widget.attachment['durationMs'] as num?)?.toInt() ?? 0;
     return SizedBox(
@@ -248,7 +248,7 @@ class _VoiceState extends State<_Voice> {
           child: Container(
             width: 40,
             height: 40,
-            decoration: BoxDecoration(color: widget.mine ? Colors.white24 : p.brandSoft, shape: BoxShape.circle),
+            decoration: BoxDecoration(color: widget.mine ? p.bubbleOutText.withValues(alpha: 0.16) : p.brandSoft, shape: BoxShape.circle),
             child: loading
                 ? Padding(padding: const EdgeInsets.all(11), child: CircularProgressIndicator(strokeWidth: 2, color: fg))
                 : Icon(player.playing ? LucideIcons.pause : LucideIcons.play, color: fg, size: 20),
@@ -275,7 +275,7 @@ class _VoiceState extends State<_Voice> {
                       ),
                   ]),
                 ),
-                Text(duration(pos > 0 ? pos : total), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: widget.mine ? Colors.white70 : p.subtle)),
+                Text(duration(pos > 0 ? pos : total), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: widget.mine ? p.bubbleOutText.withValues(alpha: 0.7) : p.subtle)),
               ]);
             },
           ),
@@ -312,7 +312,7 @@ class _DocumentState extends State<_Document> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final a = widget.attachment;
-    final fg = widget.mine ? Colors.white : p.text;
+    final fg = widget.mine ? p.bubbleOutText : p.text;
     final name = a['name'] as String? ?? '';
     final ext = name.contains('.') ? name.split('.').last.toUpperCase() : '';
     return InkWell(
@@ -321,19 +321,19 @@ class _DocumentState extends State<_Document> {
       child: Container(
         width: 240,
         padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(color: widget.mine ? Colors.white.withValues(alpha: 0.14) : p.surface2, borderRadius: BorderRadius.circular(14)),
+        decoration: BoxDecoration(color: widget.mine ? p.bubbleOutText.withValues(alpha: 0.14) : p.surface2, borderRadius: BorderRadius.circular(14)),
         child: Row(children: [
           Container(
             width: 42,
             height: 42,
-            decoration: BoxDecoration(color: widget.mine ? Colors.white24 : p.brandSoft, borderRadius: BorderRadius.circular(12)),
-            child: loading ? Padding(padding: const EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2, color: fg)) : Icon(LucideIcons.fileText, color: widget.mine ? Colors.white : p.brand),
+            decoration: BoxDecoration(color: widget.mine ? p.bubbleOutText.withValues(alpha: 0.16) : p.brandSoft, borderRadius: BorderRadius.circular(12)),
+            child: loading ? Padding(padding: const EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2, color: fg)) : Icon(LucideIcons.fileText, color: widget.mine ? p.bubbleOutText : p.brand),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: fg, fontWeight: FontWeight.w700)),
-              Text([fileSize((a['size'] as num?)?.toInt() ?? 0), ext].where((s) => s.isNotEmpty).join(' · '), style: TextStyle(fontSize: 12, color: widget.mine ? Colors.white70 : p.subtle, fontWeight: FontWeight.w600)),
+              Text([fileSize((a['size'] as num?)?.toInt() ?? 0), ext].where((s) => s.isNotEmpty).join(' · '), style: TextStyle(fontSize: 12, color: widget.mine ? p.bubbleOutText.withValues(alpha: 0.7) : p.subtle, fontWeight: FontWeight.w600)),
             ]),
           ),
         ]),
@@ -358,7 +358,7 @@ class PollView extends StatelessWidget {
     final votes = {for (final v in message.pollVotes ?? <MapEntry<int, List<String>>>[]) v.key: v.value};
     final voters = votes.values.expand((u) => u).toSet().length;
     final mineSelected = votes.entries.where((e) => e.value.contains(chat.me)).map((e) => e.key).toSet();
-    final fg = mine ? Colors.white : p.text;
+    final fg = mine ? p.bubbleOutText : p.text;
     return SizedBox(
       width: 250,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -382,7 +382,7 @@ class PollView extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 5),
               child: Row(children: [
-                Icon(mineSelected.contains(i) ? LucideIcons.circleCheck : LucideIcons.circle, size: 20, color: mine ? Colors.white : p.brand),
+                Icon(mineSelected.contains(i) ? LucideIcons.circleCheck : LucideIcons.circle, size: 20, color: mine ? p.bubbleOutText : p.brand),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -395,8 +395,8 @@ class PollView extends StatelessWidget {
                       value: voters == 0 ? 0 : (votes[i]?.length ?? 0) / voters,
                       minHeight: 5,
                       borderRadius: BorderRadius.circular(9),
-                      color: mine ? Colors.white : p.brand,
-                      backgroundColor: mine ? Colors.white24 : p.surface3,
+                      color: mine ? p.bubbleOutText : p.brand,
+                      backgroundColor: mine ? p.bubbleOutText.withValues(alpha: 0.16) : p.surface3,
                     ),
                   ]),
                 ),

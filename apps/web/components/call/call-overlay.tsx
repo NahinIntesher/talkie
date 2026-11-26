@@ -97,7 +97,7 @@ function IncomingCall({ incoming }: { incoming: CallInfo }) {
       exit={{ opacity: 0, y: -20, scale: 0.96 }}
       className="fixed inset-x-3 top-3 z-[120] mx-auto max-w-md overflow-hidden rounded-[1.75rem] bg-[#0e1022]/95 p-5 text-white shadow-[0_30px_80px_-20px_rgba(0,0,0,.7)] backdrop-blur-xl sm:top-6"
     >
-      <div className="pointer-events-none absolute -top-24 -right-16 size-64 rounded-full bg-violet-600/40 blur-3xl" />
+      <div className="pointer-events-none absolute -top-24 -right-16 size-64 rounded-full bg-amber-500/30 blur-3xl" />
       <div className="relative flex items-center gap-4">
         <span className="relative">
           <motion.span className="absolute inset-0 rounded-full bg-emerald-400/40" animate={{ scale: [1, 1.5], opacity: [0.6, 0] }} transition={{ repeat: Infinity, duration: 1.4 }} />
@@ -232,7 +232,7 @@ function ActiveCall() {
               <VideoTile participant={remotes[0]} name={nameFor(remotes[0])} avatarUrl={avatarFor(remotes[0])} className="absolute inset-0 !rounded-none" />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <div className="pointer-events-none absolute size-[32rem] rounded-full bg-violet-600/20 blur-3xl" />
+                <div className="pointer-events-none absolute size-[32rem] rounded-full bg-amber-500/15 blur-3xl" />
                 <motion.div animate={phase === 'outgoing' ? { scale: [1, 1.04, 1] } : {}} transition={{ repeat: Infinity, duration: 1.6 }}>
                   <Avatar name={title} src={conversation?.group?.avatarUrl ?? chat.profiles[others[0]?.userId ?? '']?.avatarUrl} size={144} className="shadow-2xl ring-8 ring-white/5" />
                 </motion.div>

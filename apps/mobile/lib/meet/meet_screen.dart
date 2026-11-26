@@ -207,7 +207,7 @@ class _Lobby extends StatelessWidget {
             width: 120,
             height: 120,
             decoration: BoxDecoration(gradient: context.palette.gradient, shape: BoxShape.circle),
-            child: const Icon(LucideIcons.video, color: Colors.white, size: 48),
+            child: const Icon(LucideIcons.video, color: Palette.onBrand, size: 48),
           ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack),
           const SizedBox(height: 24),
           InkWell(
@@ -571,14 +571,14 @@ class _Control extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final color = danger ? p.danger : (highlight ? p.brand : (active ? Colors.white12 : Colors.white));
+    final color = danger ? p.danger : (highlight ? Palette.fill[1] : (active ? Colors.white12 : Colors.white));
     return Material(
       color: color,
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onTap,
-        child: SizedBox(width: 54, height: 54, child: Icon(icon, color: !active && !danger && !highlight ? Colors.black : Colors.white, size: 22)),
+        child: SizedBox(width: 54, height: 54, child: Icon(icon, color: highlight ? Palette.onBrand : (!active && !danger ? Colors.black : Colors.white), size: 22)),
       ),
     );
   }

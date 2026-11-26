@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F43F5E"/><stop offset="1" stop-color="#8B5CF6"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#g)"/>
+  <g transform="translate(-22 14)">
+    <!-- lowercase t, one rounded stroke -->
+    <path d="M226 150v168c0 40 27 62 68 62" fill="none" stroke="#fff" stroke-width="54" stroke-linecap="round"/>
+    <path d="M168 222h120" fill="none" stroke="#fff" stroke-width="54" stroke-linecap="round"/>
+    <!-- the "dot" is a tiny speech bubble, pointing at the t -->
+    <path d="M370 96c30 0 54 22 54 50s-24 50-54 50c-7 0-13-1-19-3l-27 15c-5 3-11-2-9-8l8-21c-8-9-13-21-13-33 0-28 24-50 54-50z" fill="#fff"/>
+  </g>
+</svg>

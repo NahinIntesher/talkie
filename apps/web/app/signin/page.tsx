@@ -214,7 +214,7 @@ export default function SignInPage() {
 
               {step === 'done' && (
                 <motion.div key="done" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col items-center py-10 text-center">
-                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 260, damping: 14, delay: 0.1 }} className="bg-brand-gradient inline-flex size-20 items-center justify-center rounded-full text-white shadow-float">
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 260, damping: 14, delay: 0.1 }} className="bg-brand-gradient inline-flex size-20 items-center justify-center rounded-full text-on-brand shadow-float">
                     <CheckCircle2 className="size-10" aria-hidden />
                   </motion.span>
                   <h1 className="mt-6 text-2xl font-extrabold">{t.auth.successTitle}</h1>

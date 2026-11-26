@@ -108,7 +108,7 @@ function RailLink({ href, label, icon: Icon, active, badge = 0 }: { href: string
       <Icon className="relative size-[1.4rem]" aria-hidden strokeWidth={active ? 2.4 : 2} />
       <span className="relative md:sr-only">{label}</span>
       {badge > 0 && (
-        <span className="bg-brand-gradient absolute top-0 right-1 inline-flex h-[1.1rem] min-w-[1.1rem] items-center justify-center rounded-full px-1 text-[0.65rem] font-bold text-white md:top-1 md:right-1">
+        <span className="bg-brand-gradient absolute top-0 right-1 inline-flex h-[1.1rem] min-w-[1.1rem] items-center justify-center rounded-full px-1 text-[0.65rem] font-bold text-on-brand md:top-1 md:right-1">
           {badge > 99 ? '99+' : badge}
         </span>
       )}

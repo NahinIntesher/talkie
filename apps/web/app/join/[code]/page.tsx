@@ -44,7 +44,7 @@ export default function JoinPage({ params }: { params: Promise<{ code: string }>
         <Logo />
       </Link>
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="glass w-full max-w-sm rounded-[2rem] border border-border p-8 text-center shadow-float">
-        <span className="bg-brand-gradient mx-auto inline-flex size-24 items-center justify-center rounded-full text-white shadow-float">
+        <span className="bg-brand-gradient mx-auto inline-flex size-24 items-center justify-center rounded-full text-on-brand shadow-float">
           <Users className="size-10" aria-hidden />
         </span>
         {status === 'signed_out' ? (

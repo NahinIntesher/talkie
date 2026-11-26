@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><title>Talkie</title><defs>
+    <linearGradient id="bg" x1="64" y1="32" x2="448" y2="496" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#2DD4BF"/><stop offset=".5" stop-color="#0D9488"/><stop offset="1" stop-color="#115E59"/></linearGradient>
+    <radialGradient id="light" cx="120" cy="70" r="420" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fff" stop-opacity="0.3"/><stop offset=".6" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <linearGradient id="bubble" x1="0" y1="88" x2="0" y2="414.11" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#CCFBF1"/></linearGradient>
+    <linearGradient id="glyph" x1="169.36" y1="160.95999999999998" x2="342.64" y2="328.15999999999997" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0D9488"/><stop offset="1" stop-color="#134E4A"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#042F2E" flood-opacity=".38"/></filter>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="116" fill="url(#light)"/>
+  <path d="M139.56 337.7A152 152 0 1 1 186.99 375.43C172.99 383.43 155.38 406.11 135.38 409.11Q121.38 411.11 124.38 398.11C128.38 382.11 137.56 361.7 139.56 337.7z" fill="url(#bubble)" filter="url(#shadow)"/>
+  <path d="M196.72 160.96H315.28A27.36 27.36 0 0 1 315.28 215.68H283.36V300.8A27.36 27.36 0 0 1 228.64 300.8V215.68H196.72A27.36 27.36 0 0 1 196.72 160.96z" fill="url(#glyph)"/></svg>

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// The same palette as the web app (apps/web/app/globals.css).
+/// The same palette as the web app (apps/web/app/globals.css). Brand colour: Talkie gold.
+/// [brand] is the text/icon shade (deep gold on light, bright gold on dark); [gradient] is the bright gold fill,
+/// which always carries [onBrand] (dark) text. Own message bubbles use [bubbleOut] with [bubbleOutText].
 class Palette {
   const Palette({
     required this.bg,
@@ -19,10 +21,15 @@ class Palette {
     required this.success,
     required this.danger,
     required this.bubbleOut,
+    required this.bubbleOutText,
     required this.wallpaper,
   });
 
-  final Color bg, surface, surface2, surface3, border, text, muted, subtle, brand, brand2, accent, brandSoft, success, danger, bubbleOut, wallpaper;
+  final Color bg, surface, surface2, surface3, border, text, muted, subtle, brand, brand2, accent, brandSoft, success, danger, bubbleOut, bubbleOutText, wallpaper;
+
+  /// Text and icons on the gold gradient fills.
+  static const onBrand = Color(0xFF1F1300);
+  static const fill = [Color(0xFFFCC93A), Color(0xFFF59E0B), Color(0xFFE08A0B)];
 
   static const light = Palette(
     bg: Color(0xFFF6F7FB),
@@ -33,13 +40,14 @@ class Palette {
     text: Color(0xFF0E1222),
     muted: Color(0xFF4A5170),
     subtle: Color(0xFF737A96),
-    brand: Color(0xFF5B5BF7),
-    brand2: Color(0xFF8B5CF6),
-    accent: Color(0xFFEC4899),
-    brandSoft: Color(0xFFEEF0FF),
+    brand: Color(0xFFB45309),
+    brand2: Color(0xFFD97706),
+    accent: Color(0xFFEA580C),
+    brandSoft: Color(0xFFFEF3C7),
     success: Color(0xFF12A150),
     danger: Color(0xFFDC2645),
-    bubbleOut: Color(0xFF5B5BF7),
+    bubbleOut: Color(0xFFFBBF24),
+    bubbleOutText: Color(0xFF2A1700),
     wallpaper: Color(0xFFECEEF6),
   );
 
@@ -52,17 +60,18 @@ class Palette {
     text: Color(0xFFEEF0F8),
     muted: Color(0xFFA9B0CC),
     subtle: Color(0xFF7F87A6),
-    brand: Color(0xFF7C7CFF),
-    brand2: Color(0xFFA78BFA),
-    accent: Color(0xFFF472B6),
-    brandSoft: Color(0xFF1B1D3D),
+    brand: Color(0xFFFBBF24),
+    brand2: Color(0xFFF59E0B),
+    accent: Color(0xFFFB923C),
+    brandSoft: Color(0xFF2B2110),
     success: Color(0xFF34D27B),
     danger: Color(0xFFFF5C7A),
-    bubbleOut: Color(0xFF4F46E5),
+    bubbleOut: Color(0xFFB45309),
+    bubbleOutText: Color(0xFFFFFFFF),
     wallpaper: Color(0xFF0B0E19),
   );
 
-  LinearGradient get gradient => LinearGradient(colors: [brand, brand2, accent], stops: const [0, 0.55, 1.3], begin: Alignment.topLeft, end: Alignment.bottomRight);
+  LinearGradient get gradient => const LinearGradient(colors: fill, stops: [0, 0.55, 1.1], begin: Alignment.topLeft, end: Alignment.bottomRight);
 }
 
 extension PaletteOf on BuildContext {

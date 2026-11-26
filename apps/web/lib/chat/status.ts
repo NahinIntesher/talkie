@@ -38,7 +38,7 @@ interface StatusState {
 
 export const useStatus = create<StatusState>(() => ({ loaded: false, mine: [], groups: [], muted: [] }));
 
-export const STATUS_BACKGROUNDS = ['#5b5bf7', '#8b5cf6', '#db2777', '#0ea5e9', '#059669', '#d97706', '#dc2626', '#0f172a'];
+export const STATUS_BACKGROUNDS = ['#d97706', '#b45309', '#db2777', '#0ea5e9', '#059669', '#7c3aed', '#dc2626', '#0f172a'];
 export const STATUS_FONTS = ['font-sans', 'font-serif', 'font-mono', 'italic font-semibold'];
 
 async function decrypt(list: Array<WireStatus & { viewCount?: number }>): Promise<StatusItem[]> {

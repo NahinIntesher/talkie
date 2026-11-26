@@ -240,7 +240,7 @@ export function VoiceAttachment({ attachment, uploading, mine, senderId }: { att
     <div className="-mx-1 flex w-72 max-w-full items-center gap-2.5 py-1">
       <span className="relative shrink-0">
         <Avatar name={nameOf(state, senderId)} src={state.profiles[senderId]?.avatarUrl} size={44} />
-        <span className={clsx('absolute -right-1 -bottom-1 inline-flex size-5 items-center justify-center rounded-full text-[0.6rem]', mine ? 'bg-white text-brand' : 'bg-brand text-white')}>🎤</span>
+        <span className={clsx('absolute -right-1 -bottom-1 inline-flex size-5 items-center justify-center rounded-full text-[0.6rem]', mine ? 'bg-[var(--bubble-out-text)] text-[var(--bubble-out)]' : 'bg-brand text-[var(--surface)]')}>🎤</span>
       </span>
       <button onClick={toggle} aria-label={playing ? 'Pause' : 'Play'} className={clsx('inline-flex size-10 shrink-0 items-center justify-center rounded-full', mine ? 'bg-white/20' : 'bg-brand-soft text-brand')}>
         {uploading !== null || progress !== null ? <Loader2 className="size-5 animate-spin" /> : failed ? <RotateCw className="size-5" /> : playing ? <Pause className="size-5 fill-current" /> : <Play className="ml-0.5 size-5 fill-current" />}
@@ -310,7 +310,7 @@ export function PollView({ poll, conversationId, messageId, votes, mine }: { pol
           return (
             <button key={index} onClick={() => choose(index)} className="block w-full text-left" aria-pressed={selected}>
               <span className="flex items-center gap-2.5">
-                <span className={clsx('inline-flex size-5 shrink-0 items-center justify-center border-2', poll.multiple ? 'rounded-md' : 'rounded-full', selected ? (mine ? 'border-white bg-white text-brand' : 'border-brand bg-brand text-white') : 'border-current opacity-60')}>
+                <span className={clsx('inline-flex size-5 shrink-0 items-center justify-center border-2', poll.multiple ? 'rounded-md' : 'rounded-full', selected ? (mine ? 'border-[var(--bubble-out-text)] bg-[var(--bubble-out-text)] text-[var(--bubble-out)]' : 'border-brand bg-brand text-[var(--surface)]') : 'border-current opacity-60')}>
                   {selected && <Check className="size-3" strokeWidth={3.5} />}
                 </span>
                 <span className="flex-1 text-sm font-medium">{option}</span>

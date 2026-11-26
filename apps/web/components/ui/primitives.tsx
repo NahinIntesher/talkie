@@ -6,23 +6,11 @@ import { Loader2 } from 'lucide-react';
 
 // ───────── Logo ─────────
 
+/** The Talkie app icon (public/icon.svg, generated from assets/brand/talkie in the repository). */
 export function LogoMark({ size = 36, className }: { size?: number; className?: string }) {
-  const id = useId();
   return (
-    <svg width={size} height={size} viewBox="0 0 64 64" className={className} aria-hidden="true">
-      <defs>
-        <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#5b5bf7" />
-          <stop offset=".55" stopColor="#8b5cf6" />
-          <stop offset="1" stopColor="#ec4899" />
-        </linearGradient>
-      </defs>
-      <rect width="64" height="64" rx="18" fill={`url(#${id})`} />
-      <path d="M18 22.5c0-3 2.5-5.5 5.5-5.5h17c3 0 5.5 2.5 5.5 5.5v12c0 3-2.5 5.5-5.5 5.5H31l-7.2 6.2c-.9.8-2.3.1-2.3-1.1V40h-.1c-1.9-.6-3.4-2.4-3.4-4.6v-12.9Z" fill="#fff" />
-      <rect x="26" y="25" width="3.4" height="8" rx="1.7" fill="#6d5df5" />
-      <rect x="31.3" y="22.5" width="3.4" height="13" rx="1.7" fill="#8b5cf6" />
-      <rect x="36.6" y="26.5" width="3.4" height="5" rx="1.7" fill="#c04fd0" />
-    </svg>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src="/icon.svg" width={size} height={size} alt="" aria-hidden="true" draggable={false} className={clsx('shrink-0 select-none', className)} />
   );
 }
 

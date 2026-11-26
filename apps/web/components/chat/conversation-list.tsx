@@ -110,7 +110,7 @@ export function ConversationList({ activeId, onOpen, onNewChat }: { activeId: st
             <h2 className="mt-6 text-lg font-bold">{query ? s.noResults : t.app.emptyChatsTitle}</h2>
             {!query && (
               <>
-                <button onClick={() => onNewChat()} className="bg-brand-gradient mt-6 rounded-2xl px-5 py-2.5 text-sm font-semibold text-white shadow-card">
+                <button onClick={() => onNewChat()} className="bg-brand-gradient mt-6 rounded-2xl px-5 py-2.5 text-sm font-semibold text-on-brand shadow-card">
                   {s.startChat}
                 </button>
               </>
@@ -148,7 +148,7 @@ const Row = memo(function Row({ id, active, onOpen }: { id: string; active: bool
     >
       <span className="relative shrink-0">
         {conversation.kind === 'group' && !conversation.group?.avatarUrl ? (
-          <span className="inline-flex size-[3.25rem] items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white">
+          <span className="inline-flex size-[3.25rem] items-center justify-center rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white">
             <Users className="size-6" aria-hidden />
           </span>
         ) : (
@@ -182,7 +182,7 @@ const Row = memo(function Row({ id, active, onOpen }: { id: string; active: bool
           {conversation.archived && <Archive className="size-4 shrink-0 text-subtle" aria-hidden />}
           {conversation.pinned && !unread && <Pin className="size-4 shrink-0 rotate-45 text-subtle" aria-label={s.pinChat} />}
           {unread && (
-            <span className={clsx('inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[0.7rem] font-bold text-white', conversation.mutedUntil ? 'bg-subtle' : 'bg-brand-gradient')}>
+            <span className={clsx('inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[0.7rem] font-bold text-on-brand', conversation.mutedUntil ? 'bg-subtle' : 'bg-brand-gradient')}>
               {conversation.unreadCount > 0 ? (conversation.unreadCount > 99 ? '99+' : conversation.unreadCount) : ''}
             </span>
           )}

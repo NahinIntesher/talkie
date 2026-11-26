@@ -180,7 +180,7 @@ class _SignInScreenState extends State<SignInScreen> {
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
-          gradient: RadialGradient(center: const Alignment(-0.8, -1), radius: 1.4, colors: [p.brand.withValues(alpha: 0.18), p.bg]),
+          gradient: RadialGradient(center: const Alignment(-0.8, -1), radius: 1.4, colors: [Palette.fill[1].withValues(alpha: 0.16), p.bg]),
         ),
         child: SafeArea(
           child: Column(children: [

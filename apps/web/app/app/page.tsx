@@ -65,7 +65,7 @@ function ChatScreen() {
         <AnimatePresence>
           {askNotify && (
             <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden">
-              <div className="bg-brand-gradient flex items-center gap-3 px-4 py-3 text-white">
+              <div className="bg-brand-gradient flex items-center gap-3 px-4 py-3 text-on-brand">
                 <BellRing className="size-5 shrink-0" aria-hidden />
                 <button
                   className="flex-1 text-left text-sm font-semibold"

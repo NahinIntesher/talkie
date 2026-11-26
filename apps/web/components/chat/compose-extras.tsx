@@ -89,7 +89,7 @@ export function AttachDialog({ files, onClose, onSend }: { files: File[]; onClos
                 <Switch checked={hd} onChange={setHd} label={s.hd} />
               </label>
             )}
-            <button onClick={() => onSend(list, caption.trim(), hd)} aria-label={s.send} className="bg-brand-gradient inline-flex size-12 shrink-0 items-center justify-center rounded-full text-white shadow-card">
+            <button onClick={() => onSend(list, caption.trim(), hd)} aria-label={s.send} className="bg-brand-gradient inline-flex size-12 shrink-0 items-center justify-center rounded-full text-on-brand shadow-card">
               <SendHorizontal className="size-5" />
             </button>
           </div>
@@ -234,7 +234,7 @@ export function VoiceRecorder({ onSend, onCancel }: { onSend: (result: { blob: B
           ))}
         </div>
       </div>
-      <motion.button whileTap={{ scale: 0.9 }} onClick={() => void finish()} aria-label={s.send} className="bg-brand-gradient inline-flex size-12 shrink-0 items-center justify-center rounded-full text-white shadow-card">
+      <motion.button whileTap={{ scale: 0.9 }} onClick={() => void finish()} aria-label={s.send} className="bg-brand-gradient inline-flex size-12 shrink-0 items-center justify-center rounded-full text-on-brand shadow-card">
         <SendHorizontal className="size-5" />
       </motion.button>
     </motion.div>
@@ -242,7 +242,7 @@ export function VoiceRecorder({ onSend, onCancel }: { onSend: (result: { blob: B
 }
 
 export const MicButton = ({ onClick, label }: { onClick: () => void; label: string }) => (
-  <motion.button whileTap={{ scale: 0.9 }} onClick={onClick} aria-label={label} className="bg-brand-gradient inline-flex size-12 shrink-0 items-center justify-center rounded-full text-white shadow-[0_10px_24px_-10px_var(--brand)]">
+  <motion.button whileTap={{ scale: 0.9 }} onClick={onClick} aria-label={label} className="bg-brand-gradient inline-flex size-12 shrink-0 items-center justify-center rounded-full text-on-brand shadow-[0_10px_24px_-10px_var(--brand)]">
     <Mic className="size-5" />
   </motion.button>
 );

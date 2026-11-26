@@ -218,7 +218,7 @@ class _ComposerState extends State<Composer> {
   void attachMenu() {
     final p = context.palette;
     final items = [
-      (LucideIcons.image, t('গ্যালারি', 'Gallery'), const Color(0xFF8B5CF6), pickGallery),
+      (LucideIcons.image, t('গ্যালারি', 'Gallery'), const Color(0xFFD97706), pickGallery),
       (LucideIcons.camera, t('ক্যামেরা', 'Camera'), const Color(0xFFEC4899), () => pickMedia(ImageSource.camera)),
       (LucideIcons.video, t('ভিডিও', 'Video'), const Color(0xFFF97316), () => pickMedia(ImageSource.camera, video: true)),
       (LucideIcons.fileText, t('ফাইল', 'Document'), const Color(0xFF0EA5E9), pickDocument),
@@ -382,7 +382,7 @@ class _ComposerState extends State<Composer> {
                     child: Icon(
                       hasText ? (widget.editing != null ? LucideIcons.check : LucideIcons.sendHorizontal) : (recording ? LucideIcons.sendHorizontal : LucideIcons.mic),
                       key: ValueKey('$hasText$recording'),
-                      color: Colors.white,
+                      color: Palette.onBrand,
                       size: 22,
                     ),
                   ),

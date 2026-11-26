@@ -53,8 +53,8 @@ class StatusScreen extends StatelessWidget {
         const SizedBox(height: 12),
         FloatingActionButton(
           heroTag: 'media-status',
-          backgroundColor: p.brand,
-          foregroundColor: Colors.white,
+          backgroundColor: Palette.fill[1],
+          foregroundColor: Palette.onBrand,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           onPressed: () => _pickMedia(context),
           child: const Icon(LucideIcons.camera),
@@ -74,8 +74,8 @@ class StatusScreen extends StatelessWidget {
                       child: Container(
                         width: 22,
                         height: 22,
-                        decoration: BoxDecoration(color: p.brand, shape: BoxShape.circle, border: Border.all(color: p.bg, width: 2.5)),
-                        child: const Icon(LucideIcons.plus, size: 13, color: Colors.white),
+                        decoration: BoxDecoration(color: Palette.fill[1], shape: BoxShape.circle, border: Border.all(color: p.bg, width: 2.5)),
+                        child: const Icon(LucideIcons.plus, size: 13, color: Palette.onBrand),
                       ),
                     ),
                   ])
@@ -387,7 +387,7 @@ class _StatusViewerState extends State<StatusViewer> with SingleTickerProviderSt
     final body = item.body ?? {};
     final text = body['text'] as String? ?? '';
     final bgHex = (body['background'] as String? ?? '#5b5bf7').replaceFirst('#', '');
-    final bg = Color(int.tryParse('FF$bgHex', radix: 16) ?? 0xFF5B5BF7);
+    final bg = Color(int.tryParse('FF$bgHex', radix: 16) ?? 0xFFD97706);
     final attachment = body['attachment'] as Map<String, dynamic>?;
     final thumb = Media.thumbBytes(attachment?['thumb'] as String?);
 

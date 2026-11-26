@@ -154,7 +154,7 @@ export function NewChatDialog({
             <div className="scrollbar-thin min-h-48 flex-1 overflow-y-auto px-3 pb-3">
               {mode === 'pick' && !query && (
                 <button onClick={() => setMode('group-members')} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors hover:bg-surface-2">
-                  <span className="bg-brand-gradient inline-flex size-11 items-center justify-center rounded-full text-white">
+                  <span className="bg-brand-gradient inline-flex size-11 items-center justify-center rounded-full text-on-brand">
                     <Users className="size-5" aria-hidden />
                   </span>
                   <span className="font-semibold">{s.newGroup}</span>
@@ -173,7 +173,7 @@ export function NewChatDialog({
                     <span className="relative">
                       <Avatar name={person.displayName} src={person.avatarUrl} size={44} />
                       {chosen && (
-                        <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} className="bg-brand-gradient absolute -right-0.5 -bottom-0.5 inline-flex size-5 items-center justify-center rounded-full border-2 border-surface text-white">
+                        <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} className="bg-brand-gradient absolute -right-0.5 -bottom-0.5 inline-flex size-5 items-center justify-center rounded-full border-2 border-surface text-on-brand">
                           <Check className="size-3" strokeWidth={3} />
                         </motion.span>
                       )}
@@ -223,7 +223,7 @@ export function NewChatDialog({
             }}
           >
             <div className="flex justify-center pt-2">
-              <span className="bg-brand-gradient inline-flex size-24 items-center justify-center rounded-full text-white shadow-float">
+              <span className="bg-brand-gradient inline-flex size-24 items-center justify-center rounded-full text-on-brand shadow-float">
                 <Users className="size-10" aria-hidden />
               </span>
             </div>

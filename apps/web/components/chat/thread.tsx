@@ -195,7 +195,7 @@ export function Thread({ conversationId, onBack, onInfo }: { conversationId: str
         </IconButton>
         <button onClick={onInfo} className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-1.5 py-1 text-left transition-colors hover:bg-surface-2">
           {conversation.kind === 'group' && !conversation.group?.avatarUrl ? (
-            <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white">
+            <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white">
               <Users className="size-5" aria-hidden />
             </span>
           ) : (
@@ -326,7 +326,7 @@ export function Thread({ conversationId, onBack, onInfo }: { conversationId: str
             className="absolute right-6 bottom-24 z-20 inline-flex size-11 items-center justify-center rounded-full border border-border bg-surface text-muted shadow-float hover:text-text"
           >
             <ChevronDown className="size-5" />
-            {conversation.unreadCount > 0 && <span className="bg-brand-gradient absolute -top-1.5 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[0.7rem] font-bold text-white">{conversation.unreadCount}</span>}
+            {conversation.unreadCount > 0 && <span className="bg-brand-gradient absolute -top-1.5 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[0.7rem] font-bold text-on-brand">{conversation.unreadCount}</span>}
           </motion.button>
         )}
       </AnimatePresence>

@@ -88,7 +88,7 @@ export function InfoPanel({ conversationId, onClose, onLeft }: { conversationId:
         <div className="flex flex-col items-center px-6 pt-8 pb-6 text-center">
           <label className={clsx('group relative rounded-full', canEditInfo && 'cursor-pointer')}>
             {group && !group.avatarUrl ? (
-              <span className="bg-brand-gradient inline-flex size-28 items-center justify-center rounded-full text-white shadow-float">
+              <span className="bg-brand-gradient inline-flex size-28 items-center justify-center rounded-full text-on-brand shadow-float">
                 <Users className="size-12" aria-hidden />
               </span>
             ) : (
@@ -195,7 +195,7 @@ export function InfoPanel({ conversationId, onClose, onLeft }: { conversationId:
             <div className="-mx-3 space-y-0.5">
               {(isAdmin || group.addMemberPolicy === 'all') && conversation.active && (
                 <button onClick={() => setAdding(true)} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left hover:bg-surface-2">
-                  <span className="bg-brand-gradient inline-flex size-10 items-center justify-center rounded-full text-white">
+                  <span className="bg-brand-gradient inline-flex size-10 items-center justify-center rounded-full text-on-brand">
                     <UserPlus className="size-5" aria-hidden />
                   </span>
                   <span className="font-semibold">{s.addParticipants}</span>

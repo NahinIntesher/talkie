@@ -35,8 +35,8 @@ class _MessageBubbleState extends State<MessageBubble> {
     final t = prefs.t;
     final mine = m.senderId == chat.me;
     final media = m.kind == 'image' || m.kind == 'video';
-    final fg = mine ? Colors.white : p.text;
-    final meta = mine ? Colors.white.withValues(alpha: 0.75) : p.subtle;
+    final fg = mine ? p.bubbleOutText : p.text;
+    final meta = mine ? p.bubbleOutText.withValues(alpha: 0.75) : p.subtle;
     const r = Radius.circular(20);
     const tight = Radius.circular(6);
     final radius = BorderRadius.only(
@@ -84,7 +84,7 @@ class _MessageBubbleState extends State<MessageBubble> {
       padding: media && (m.text ?? '').isEmpty ? const EdgeInsets.all(4) : EdgeInsets.fromLTRB(media ? 4 : 13, media ? 4 : 8, media ? 4 : 13, 7),
       decoration: BoxDecoration(
         color: mine ? null : p.surface,
-        gradient: mine ? LinearGradient(colors: [p.bubbleOut, Color.lerp(p.bubbleOut, p.brand2, 0.45)!], begin: Alignment.topLeft, end: Alignment.bottomRight) : null,
+        gradient: mine ? LinearGradient(colors: [p.bubbleOut, Color.lerp(p.bubbleOut, Colors.black, 0.06)!], begin: Alignment.topLeft, end: Alignment.bottomRight) : null,
         borderRadius: radius,
         boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6, offset: const Offset(0, 2))],
       ),
@@ -98,7 +98,7 @@ class _MessageBubbleState extends State<MessageBubble> {
           ),
         ?reply,
         content,
-        if (progress != null) Padding(padding: const EdgeInsets.only(top: 6), child: LinearProgressIndicator(value: progress, minHeight: 3, borderRadius: BorderRadius.circular(9), color: Colors.white, backgroundColor: Colors.white24)),
+        if (progress != null) Padding(padding: const EdgeInsets.only(top: 6), child: LinearProgressIndicator(value: progress, minHeight: 3, borderRadius: BorderRadius.circular(9), color: p.bubbleOutText, backgroundColor: p.bubbleOutText.withValues(alpha: 0.16))),
         Padding(padding: EdgeInsets.only(top: 2, right: media ? 6 : 0), child: Align(alignment: Alignment.centerRight, widthFactor: 1, child: time)),
       ]),
     );
@@ -161,13 +161,13 @@ class _ReplyQuote extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
       decoration: BoxDecoration(
-        color: mine ? Colors.white.withValues(alpha: 0.16) : p.brandSoft,
+        color: mine ? p.bubbleOutText.withValues(alpha: 0.16) : p.brandSoft,
         borderRadius: BorderRadius.circular(12),
-        border: Border(left: BorderSide(color: mine ? Colors.white : p.brand, width: 3)),
+        border: Border(left: BorderSide(color: mine ? p.bubbleOutText : p.brand, width: 3)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(quoted == null ? '…' : chat.nameOf(quoted.senderId, you: prefs.t('আপনি', 'You')), style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: mine ? Colors.white : p.brand)),
-        Text(preview(quoted, chat, prefs), maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: mine ? Colors.white70 : p.muted)),
+        Text(quoted == null ? '…' : chat.nameOf(quoted.senderId, you: prefs.t('আপনি', 'You')), style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: mine ? p.bubbleOutText : p.brand)),
+        Text(preview(quoted, chat, prefs), maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: mine ? p.bubbleOutText.withValues(alpha: 0.7) : p.muted)),
       ]),
     );
   }

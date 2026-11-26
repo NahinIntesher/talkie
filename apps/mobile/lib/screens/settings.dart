@@ -228,7 +228,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   width: 38,
                   height: 38,
                   decoration: BoxDecoration(gradient: p.gradient, shape: BoxShape.circle, border: Border.all(color: p.bg, width: 3)),
-                  child: uploading ? const Padding(padding: EdgeInsets.all(9), child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(LucideIcons.camera, size: 17, color: Colors.white),
+                  child: uploading ? const Padding(padding: EdgeInsets.all(9), child: CircularProgressIndicator(strokeWidth: 2, color: Palette.onBrand)) : const Icon(LucideIcons.camera, size: 17, color: Palette.onBrand),
                 ),
               ),
             ]),

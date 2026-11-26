@@ -147,7 +147,7 @@ export default function StatusPage() {
                 <Avatar name={user?.displayName ?? ''} src={user?.avatarUrl} size={status.mine.length ? 48 : 54} />
               </StatusRing>
               {!status.mine.length && (
-                <span className="bg-brand-gradient absolute -right-0.5 -bottom-0.5 inline-flex size-6 items-center justify-center rounded-full border-2 border-surface text-white">
+                <span className="bg-brand-gradient absolute -right-0.5 -bottom-0.5 inline-flex size-6 items-center justify-center rounded-full border-2 border-surface text-on-brand">
                   <Plus className="size-3.5" strokeWidth={3} />
                 </span>
               )}
@@ -184,7 +184,7 @@ export default function StatusPage() {
       <section className="ambient hidden flex-1 flex-col items-center justify-center gap-6 px-10 text-center md:flex">
         <div className="flex gap-4">
           <motion.button whileHover={{ y: -4 }} onClick={() => setComposer('text')} className="flex w-40 flex-col items-center gap-3 rounded-3xl border border-border bg-surface p-6 shadow-card">
-            <span className="bg-brand-gradient inline-flex size-14 items-center justify-center rounded-2xl text-white">
+            <span className="bg-brand-gradient inline-flex size-14 items-center justify-center rounded-2xl text-on-brand">
               <Type className="size-7" />
             </span>
             <span className="font-semibold">{t.text}</span>
@@ -249,8 +249,8 @@ function StatusRing({ count, viewed, size, children }: { count: number; viewed: 
         <svg width={size} height={size} className="absolute inset-0 -rotate-90" aria-hidden>
           <defs>
             <linearGradient id="status-ring" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stopColor="#5b5bf7" />
-              <stop offset="1" stopColor="#ec4899" />
+              <stop offset="0" stopColor="#fbbf24" />
+              <stop offset="1" stopColor="#ea580c" />
             </linearGradient>
           </defs>
           {Array.from({ length: count }, (_, index) => (
@@ -364,7 +364,7 @@ function MediaComposer({ file, onClose, onShare }: { file: File | null; onClose:
           </div>
           <div className="flex gap-3">
             <input value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={700} placeholder={t.caption} autoFocus onKeyDown={(e) => e.key === 'Enter' && onShare(file, caption.trim())} className="h-12 flex-1 rounded-2xl border border-border-strong bg-surface px-4 outline-none focus:border-brand focus:ring-4 focus:ring-[var(--ring)]" />
-            <button onClick={() => onShare(file, caption.trim())} aria-label="Share" className="bg-brand-gradient inline-flex size-12 items-center justify-center rounded-full text-white">
+            <button onClick={() => onShare(file, caption.trim())} aria-label="Share" className="bg-brand-gradient inline-flex size-12 items-center justify-center rounded-full text-on-brand">
               <SendHorizontal className="size-5" />
             </button>
           </div>
@@ -497,7 +497,7 @@ function Viewer({ ownerId, items, start, mine, onClose, onNextOwner }: { ownerId
         {/* Content */}
         <div
           className="relative flex flex-1 items-center justify-center overflow-hidden"
-          style={{ background: item.kind === 'text' ? body?.background ?? '#5b5bf7' : '#000' }}
+          style={{ background: item.kind === 'text' ? body?.background ?? '#d97706' : '#000' }}
           onPointerDown={() => setPaused(true)}
           onPointerUp={() => setPaused(false)}
         >

@@ -32,8 +32,8 @@ export default function Landing() {
   const { status } = useSession();
   const signedIn = status === 'signed_in';
   const features = [
-    { icon: MessageCircle, ...t.features.chat, tone: 'from-indigo-500 to-violet-500' },
-    { icon: Users, ...t.features.groups, tone: 'from-violet-500 to-fuchsia-500' },
+    { icon: MessageCircle, ...t.features.chat, tone: 'from-amber-400 to-orange-500' },
+    { icon: Users, ...t.features.groups, tone: 'from-orange-400 to-rose-500' },
     { icon: Phone, ...t.features.calls, tone: 'from-sky-500 to-indigo-500' },
     { icon: Video, ...t.features.meet, tone: 'from-fuchsia-500 to-pink-500' },
     { icon: CircleDashed, ...t.features.status, tone: 'from-emerald-500 to-teal-500' },
@@ -138,8 +138,8 @@ export default function Landing() {
       {/* Meetings */}
       <section id="meetings" className="mx-auto max-w-6xl scroll-mt-24 px-4 py-10 sm:px-6">
         <motion.div {...rise} className="relative overflow-hidden rounded-[2rem] bg-[#0b0d1a] p-6 text-white shadow-float sm:p-10">
-          <div className="pointer-events-none absolute -top-40 -right-20 size-[28rem] rounded-full bg-violet-600/30 blur-3xl" aria-hidden />
-          <div className="pointer-events-none absolute -bottom-40 -left-20 size-[26rem] rounded-full bg-indigo-600/30 blur-3xl" aria-hidden />
+          <div className="pointer-events-none absolute -top-40 -right-20 size-[28rem] rounded-full bg-amber-500/25 blur-3xl" aria-hidden />
+          <div className="pointer-events-none absolute -bottom-40 -left-20 size-[26rem] rounded-full bg-orange-600/20 blur-3xl" aria-hidden />
           <div className="relative grid gap-10 lg:grid-cols-[1fr_1.2fr] lg:items-center">
             <div>
               <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-sm font-semibold">
@@ -178,7 +178,7 @@ export default function Landing() {
 
       {/* CTA */}
       <section className="mx-auto max-w-6xl px-4 pb-24 sm:px-6">
-        <motion.div {...rise} className="bg-brand-gradient relative overflow-hidden rounded-[2rem] px-6 py-14 text-center text-white shadow-float sm:px-12">
+        <motion.div {...rise} className="bg-brand-gradient relative overflow-hidden rounded-[2rem] px-6 py-14 text-center text-on-brand shadow-float sm:px-12">
           <div className="grid-fade pointer-events-none absolute inset-0 opacity-20" aria-hidden />
           <h2 className="relative text-3xl font-extrabold tracking-tight sm:text-4xl">{t.cta.title}</h2>
           <p className="relative mt-3 text-lg text-white/85">{t.cta.body}</p>
@@ -239,7 +239,7 @@ function HeroPreview() {
               transition={{ delay: 0.55 + index * 0.35 }}
               className={`flex ${message.me ? 'justify-end' : 'justify-start'}`}
             >
-              <div className={`max-w-[78%] rounded-2xl px-3.5 py-2 text-[0.93rem] shadow-soft ${message.me ? 'rounded-br-md bg-brand text-white' : 'rounded-bl-md bg-surface'}`}>
+              <div className={`max-w-[78%] rounded-2xl px-3.5 py-2 text-[0.93rem] shadow-soft ${message.me ? 'rounded-br-md bg-[var(--bubble-out)] text-[var(--bubble-out-text)]' : 'rounded-bl-md bg-surface'}`}>
                 <span className={message.link ? 'underline decoration-white/60 underline-offset-2' : ''}>{message.text}</span>
                 <span className={`ml-2 inline-flex items-center gap-0.5 align-bottom text-[0.7rem] ${message.me ? 'text-white/75' : 'text-subtle'}`}>
                   {message.time}
@@ -256,7 +256,7 @@ function HeroPreview() {
         </div>
         <div className="flex items-center gap-2 border-t border-border px-4 py-3">
           <div className="h-11 flex-1 rounded-2xl bg-surface-2 px-4 py-3 text-sm text-subtle">{bn ? 'মেসেজ লিখুন' : 'Message'}</div>
-          <span className="bg-brand-gradient inline-flex size-11 items-center justify-center rounded-2xl text-white shadow-card"><Mic className="size-5" /></span>
+          <span className="bg-brand-gradient inline-flex size-11 items-center justify-center rounded-2xl text-on-brand shadow-card"><Mic className="size-5" /></span>
         </div>
       </div>
       <motion.div

@@ -29,7 +29,7 @@ class StatusGroup {
   DateTime get latest => items.last.time;
 }
 
-const statusBackgrounds = [0xFF5B5BF7, 0xFF8B5CF6, 0xFFDB2777, 0xFF0EA5E9, 0xFF059669, 0xFFD97706, 0xFFDC2626, 0xFF0F172A];
+const statusBackgrounds = [0xFFD97706, 0xFFB45309, 0xFFDB2777, 0xFF0EA5E9, 0xFF059669, 0xFF7C3AED, 0xFFDC2626, 0xFF0F172A];
 
 /// Status updates that disappear after 24 hours, end-to-end encrypted for the people allowed to see them
 /// (a port of the web's lib/chat/status.ts).

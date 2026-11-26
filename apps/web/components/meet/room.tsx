@@ -766,7 +766,7 @@ function QA({ t }: { t: T }) {
           <p className="text-xs font-semibold text-subtle">{q.userId ? nameOf(chat, q.userId, t.you) : t.anonymous.replace(/^Ask /, '')}</p>
           <p className="mt-1 text-sm">{q.body}</p>
           <div className="mt-2 flex items-center gap-2">
-            <button onClick={() => void meet.upvote(q.id, !q.votedByMe)} aria-pressed={q.votedByMe} className={clsx('flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold', q.votedByMe ? 'bg-brand text-white' : 'bg-surface-2')}>
+            <button onClick={() => void meet.upvote(q.id, !q.votedByMe)} aria-pressed={q.votedByMe} className={clsx('flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold', q.votedByMe ? 'bg-brand text-[var(--surface)]' : 'bg-surface-2')}>
               <ThumbsUp className="size-3.5" aria-hidden />
               {q.votes}
             </button>

@@ -253,7 +253,7 @@ export function Composer({
                       </button>
                     )}
                     items={[
-                      { label: s.photosVideos, icon: <ImageIcon className="text-violet-500" />, onSelect: () => mediaInput.current?.click() },
+                      { label: s.photosVideos, icon: <ImageIcon className="text-amber-500" />, onSelect: () => mediaInput.current?.click() },
                       { label: s.document, icon: <FileText className="text-sky-500" />, onSelect: () => docInput.current?.click() },
                       { label: s.poll, icon: <BarChart3 className="text-amber-500" />, onSelect: () => setPollOpen(true) },
                     ]}
@@ -267,7 +267,7 @@ export function Composer({
                 onClick={submit}
                 disabled={!text.trim()}
                 aria-label={editing ? s.edit : s.send}
-                className="bg-brand-gradient inline-flex size-12 shrink-0 items-center justify-center rounded-full text-white shadow-[0_10px_24px_-10px_var(--brand)] transition-opacity disabled:opacity-45"
+                className="bg-brand-gradient inline-flex size-12 shrink-0 items-center justify-center rounded-full text-on-brand shadow-[0_10px_24px_-10px_var(--brand)] transition-opacity disabled:opacity-45"
               >
                 <SendHorizontal className="size-5" />
               </motion.button>

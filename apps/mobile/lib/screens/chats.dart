@@ -69,8 +69,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
           ? null
           : FloatingActionButton(
               onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NewChatScreen())),
-              backgroundColor: p.brand,
-              foregroundColor: Colors.white,
+              backgroundColor: Palette.fill[1],
+              foregroundColor: Palette.onBrand,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               child: const Icon(LucideIcons.messageCirclePlus),
             ).animate().scale(delay: 200.ms, duration: 350.ms, curve: Curves.easeOutBack),
@@ -226,7 +226,7 @@ class _ChatRow extends StatelessWidget {
                     constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
                     alignment: Alignment.center,
                     decoration: BoxDecoration(gradient: muted ? null : p.gradient, color: muted ? p.subtle : null, borderRadius: BorderRadius.circular(99)),
-                    child: Text(c.unreadCount > 0 ? digits('${c.unreadCount}', prefs) : '', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800)),
+                    child: Text(c.unreadCount > 0 ? digits('${c.unreadCount}', prefs) : '', style: TextStyle(color: muted ? Colors.white : Palette.onBrand, fontSize: 12, fontWeight: FontWeight.w800)),
                   ),
               ]),
             ]),

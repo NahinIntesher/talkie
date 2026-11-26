@@ -15,7 +15,10 @@ export const metadata: Metadata = {
   title: { default: 'Talkie — Private messaging and meetings', template: '%s · Talkie' },
   description: 'End-to-end encrypted messaging, voice and video calls, and beautiful meetings — on Android and the web.',
   applicationName: 'Talkie',
-  icons: { icon: '/icon.svg' },
+  icons: {
+    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }, { url: '/icon-192.png', sizes: '192x192', type: 'image/png' }],
+    apple: '/apple-touch-icon.png',
+  },
   openGraph: { title: 'Talkie', description: 'Talk freely. Meet beautifully.', type: 'website' },
 };
 

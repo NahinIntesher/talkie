@@ -110,9 +110,9 @@ class _NewChatScreenState extends State<NewChatScreen> {
       floatingActionButton: widget.group && selected.isNotEmpty && groupName.text.trim().isNotEmpty
           ? FloatingActionButton.extended(
               onPressed: busy ? null : createGroup,
-              backgroundColor: p.brand,
-              foregroundColor: Colors.white,
-              icon: busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(LucideIcons.check),
+              backgroundColor: Palette.fill[1],
+              foregroundColor: Palette.onBrand,
+              icon: busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Palette.onBrand)) : const Icon(LucideIcons.check),
               label: Text(t('তৈরি করুন', 'Create'), style: const TextStyle(fontWeight: FontWeight.w800)),
             )
           : null,

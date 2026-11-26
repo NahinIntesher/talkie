@@ -13,7 +13,7 @@ export function ComingSoon({ icon: Icon, title, body }: { icon: LucideIcon; titl
       <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="max-w-sm">
         <div className="relative mx-auto w-fit">
           <div className="absolute -inset-6 rounded-full bg-brand-gradient opacity-25 blur-2xl" />
-          <span className="bg-brand-gradient relative inline-flex size-24 items-center justify-center rounded-[2rem] text-white shadow-float">
+          <span className="bg-brand-gradient relative inline-flex size-24 items-center justify-center rounded-[2rem] text-on-brand shadow-float">
             <Icon className="size-11" aria-hidden />
           </span>
         </div>
