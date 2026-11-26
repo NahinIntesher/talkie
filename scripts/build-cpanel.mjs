@@ -53,6 +53,7 @@ for (const line of readFileSync(join(root, '.env.hosted'), 'utf8').split(/\r?\n/
 
 if (!args.has('--skip-web')) {
   step('Building the web app');
+  process.env.NEXT_BUILD_CPUS ??= '2'; // fewer build workers: less memory
   run('npm', ['run', 'build', '-w', '@talkie/web']);
 }
 const standalone = join(root, 'apps', 'web', '.next', 'standalone');

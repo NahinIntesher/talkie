@@ -26,3 +26,4 @@ apps/mobile/android/replay_pid*.log
 apps/mobile/android/app/google-services.json
 *firebase-adminsdk*.json
 firebase-service-account.json
+*.tsbuildinfo

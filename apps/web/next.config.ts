@@ -8,7 +8,11 @@ const config: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   transpilePackages: ['@talkie/contracts', '@talkie/e2ee'],
-  experimental: { optimizePackageImports: ['lucide-react', 'motion'] },
+  experimental: {
+    optimizePackageImports: ['lucide-react', 'motion'],
+    // NEXT_BUILD_CPUS=2 keeps build memory low on small machines (the cPanel build sets it).
+    ...(process.env.NEXT_BUILD_CPUS ? { cpus: Number(process.env.NEXT_BUILD_CPUS) } : {}),
+  },
   async rewrites() {
     if (process.env.NODE_ENV === 'production') return [];
     return Object.entries(services).map(([name, port]) => ({
