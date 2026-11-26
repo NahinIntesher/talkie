@@ -1,8 +1,8 @@
-# Only on the server, never in git:
-.env
-secrets/
-node_modules/
-data/
-tmp/
-*.log
-*.log.1
+# Only on the server, never in git. Anchored to this folder: web/node_modules (the web app’s own packages) is part of the build.
+/.env
+/secrets/
+/node_modules/
+/data/
+/tmp/
+/*.log
+/*.log.1
