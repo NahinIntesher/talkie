@@ -101,7 +101,8 @@ ThemeData buildTheme(Brightness brightness, {required bool bangla}) {
       fillColor: p.surface2,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: p.brand, width: 2)),
+      // A focused field: one thin gold line, no heavy outline (same as the web app).
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: p.brand.withValues(alpha: 0.6), width: 1)),
       errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: p.danger, width: 1.5)),
       hintStyle: TextStyle(color: p.subtle, fontWeight: FontWeight.w500),
     ),

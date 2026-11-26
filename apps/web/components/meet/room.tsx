@@ -624,7 +624,7 @@ function ChatPanel({ t }: { t: T }) {
           setText('');
         }}
       >
-        <input value={text} disabled={!!off} onChange={(e) => setText(e.target.value)} placeholder={off ? t.chatOff : t.message} maxLength={2000} className="h-11 flex-1 rounded-full bg-surface-2 px-4 text-sm outline-none focus:ring-2 focus:ring-[var(--ring-soft)] disabled:opacity-60" />
+        <input value={text} disabled={!!off} onChange={(e) => setText(e.target.value)} placeholder={off ? t.chatOff : t.message} maxLength={2000} className="h-11 flex-1 rounded-full bg-surface-2 px-4 text-sm outline-none focus:ring-1 focus:ring-[var(--ring-field)] disabled:opacity-60" />
         <button type="submit" aria-label={t.send} disabled={!text.trim()} className="inline-flex size-11 items-center justify-center rounded-full text-brand disabled:opacity-40">
           <Send className="size-5" />
         </button>
@@ -680,8 +680,8 @@ function Polls({ t }: { t: T }) {
           }}
         >
           <p className="text-sm font-bold">{t.newPoll}</p>
-          <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder={t.question} className="h-10 w-full rounded-xl bg-surface-2 px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--ring-soft)]" />
-          <textarea value={options} onChange={(e) => setOptions(e.target.value)} placeholder={t.options} rows={3} className="w-full resize-none rounded-xl bg-surface-2 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--ring-soft)]" />
+          <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder={t.question} className="h-10 w-full rounded-xl bg-surface-2 px-3 text-sm outline-none focus:ring-1 focus:ring-[var(--ring-field)]" />
+          <textarea value={options} onChange={(e) => setOptions(e.target.value)} placeholder={t.options} rows={3} className="w-full resize-none rounded-xl bg-surface-2 px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[var(--ring-field)]" />
           <label className="flex items-center justify-between text-sm">
             {t.multiple}
             <Switch checked={multiple} onChange={setMultiple} label={t.multiple} />
@@ -750,7 +750,7 @@ function QA({ t }: { t: T }) {
           setBody('');
         }}
       >
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder={t.ask} maxLength={500} rows={2} className="w-full resize-none rounded-xl bg-surface-2 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--ring-soft)]" />
+        <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder={t.ask} maxLength={500} rows={2} className="w-full resize-none rounded-xl bg-surface-2 px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[var(--ring-field)]" />
         <div className="flex items-center justify-between">
           <label className="flex items-center gap-2 text-sm">
             <Switch checked={anonymous} onChange={setAnonymous} label={t.anonymous} />

@@ -81,7 +81,7 @@ export function AttachDialog({ files, onClose, onSend }: { files: File[]; onClos
               placeholder={s.addCaption}
               maxLength={4000}
               autoFocus
-              className="h-12 min-w-0 flex-1 rounded-2xl border border-border-strong bg-surface px-4 outline-none focus:border-brand/60 focus:ring-2 focus:ring-[var(--ring-soft)]"
+              className="h-12 min-w-0 flex-1 rounded-2xl border border-border-strong bg-surface px-4 outline-none focus:border-transparent focus:ring-1 focus:ring-[var(--ring-field)]"
             />
             {hasPhotos && (
               <label className="flex shrink-0 items-center gap-2 text-sm font-bold">
@@ -125,7 +125,7 @@ export function PollDialog({ open, onClose, onCreate }: { open: boolean; onClose
       >
         <label className="block space-y-1.5">
           <span className="text-sm font-semibold">{s.question}</span>
-          <input value={question} maxLength={255} onChange={(e) => setQuestion(e.target.value)} placeholder={s.questionPlaceholder} autoFocus className="h-12 w-full rounded-2xl border border-border-strong bg-surface px-4 outline-none focus:border-brand/60 focus:ring-2 focus:ring-[var(--ring-soft)]" />
+          <input value={question} maxLength={255} onChange={(e) => setQuestion(e.target.value)} placeholder={s.questionPlaceholder} autoFocus className="h-12 w-full rounded-2xl border border-border-strong bg-surface px-4 outline-none focus:border-transparent focus:ring-1 focus:ring-[var(--ring-field)]" />
         </label>
         <div className="space-y-2">
           {options.map((option, index) => (
@@ -141,7 +141,7 @@ export function PollDialog({ open, onClose, onCreate }: { open: boolean; onClose
                 }}
                 placeholder={fill(s.option, { n: index + 1 })}
                 aria-label={fill(s.option, { n: index + 1 })}
-                className="h-11 flex-1 rounded-xl border border-border bg-surface-2 px-4 outline-none focus:border-brand/60 focus:bg-surface focus:ring-2 focus:ring-[var(--ring-soft)]"
+                className="h-11 flex-1 rounded-xl border border-border bg-surface-2 px-4 outline-none focus:border-transparent focus:bg-surface focus:ring-1 focus:ring-[var(--ring-field)]"
               />
               {options.length > 2 && (
                 <button type="button" onClick={() => setOptions(options.filter((_, i) => i !== index))} aria-label="Remove" className="inline-flex size-9 items-center justify-center rounded-full text-muted hover:bg-surface-2">

@@ -361,7 +361,7 @@ function MediaComposer({ file, onClose, onShare }: { file: File | null; onClose:
             {file.type.startsWith('video/') ? <video src={url} controls className="max-h-full" /> : <img src={url} alt="" className="max-h-full object-contain" />}
           </div>
           <div className="flex gap-3">
-            <input value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={700} placeholder={t.caption} autoFocus onKeyDown={(e) => e.key === 'Enter' && onShare(file, caption.trim())} className="h-12 flex-1 rounded-2xl border border-border-strong bg-surface px-4 outline-none focus:border-brand/60 focus:ring-2 focus:ring-[var(--ring-soft)]" />
+            <input value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={700} placeholder={t.caption} autoFocus onKeyDown={(e) => e.key === 'Enter' && onShare(file, caption.trim())} className="h-12 flex-1 rounded-2xl border border-border-strong bg-surface px-4 outline-none focus:border-transparent focus:ring-1 focus:ring-[var(--ring-field)]" />
             <button onClick={() => onShare(file, caption.trim())} aria-label="Share" className="bg-brand-gradient inline-flex size-12 items-center justify-center rounded-full text-on-brand">
               <SendHorizontal className="size-5" />
             </button>

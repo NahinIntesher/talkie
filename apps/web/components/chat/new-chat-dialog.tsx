@@ -133,7 +133,7 @@ export function NewChatDialog({
         {mode !== 'group-name' ? (
           <motion.div key="people" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="flex min-h-0 flex-1 flex-col">
             <div className="px-5 pb-3">
-              <label className="flex h-11 items-center gap-2.5 rounded-2xl bg-surface-2 px-4 focus-within:ring-2 focus-within:ring-[var(--ring-soft)]">
+              <label className="flex h-11 items-center gap-2.5 rounded-2xl bg-surface-2 px-4 focus-within:ring-1 focus-within:ring-[var(--ring-field)]">
                 <Search className="size-[1.1rem] text-subtle" aria-hidden />
                 <span className="sr-only">{s.searchPeople}</span>
                 <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={s.searchPeople} autoCapitalize="none" spellCheck={false} className="h-full flex-1 bg-transparent outline-none placeholder:text-subtle" />

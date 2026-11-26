@@ -82,12 +82,12 @@ export function OtpInput({
             }}
             className={clsx(
               'aspect-[4/5] w-full max-w-14 rounded-2xl border bg-surface text-center text-2xl font-bold tabular-nums transition-all duration-150 outline-none',
-              'focus:ring-2',
+              'focus:border-transparent focus:ring-1',
               invalid
-                ? 'animate-[shake_.35s] border-danger text-danger focus:ring-[color-mix(in_srgb,var(--danger)_25%,transparent)]'
+                ? 'animate-[shake_.35s] border-danger text-danger focus:ring-[var(--danger)]'
                 : char
-                  ? 'border-brand text-text focus:ring-[var(--ring-soft)]'
-                  : 'border-border-strong text-text focus:border-brand/60 focus:ring-[var(--ring-soft)]',
+                  ? 'border-brand text-text focus:ring-[var(--ring-field)]'
+                  : 'border-border-strong text-text focus:ring-[var(--ring-field)]',
             )}
           />
         );

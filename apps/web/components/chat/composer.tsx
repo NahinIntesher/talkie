@@ -216,7 +216,7 @@ export function Composer({
           />
         ) : (
           <>
-            <div className="flex min-h-12 flex-1 items-end gap-1 rounded-[1.5rem] border border-border bg-surface-2 px-2 py-1.5 transition focus-within:border-brand/60 focus-within:bg-surface focus-within:ring-2 focus-within:ring-[var(--ring-soft)]">
+            <div className="flex min-h-12 flex-1 items-end gap-1 rounded-[1.5rem] border border-border bg-surface-2 px-2 py-1.5 transition focus-within:border-transparent focus-within:bg-surface focus-within:ring-1 focus-within:ring-[var(--ring-field)]">
               <button onClick={() => setEmoji((v) => !v)} aria-label="Emoji" aria-pressed={emoji} className={clsx('inline-flex size-9 shrink-0 items-center justify-center rounded-full transition-colors', emoji ? 'text-brand' : 'text-muted hover:text-text')}>
                 <Smile className="size-[1.35rem]" />
               </button>

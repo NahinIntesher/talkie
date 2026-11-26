@@ -119,10 +119,10 @@ export const TextField = forwardRef<HTMLInputElement, FieldProps>(function TextF
       <div
         className={clsx(
           'group flex h-12 items-center gap-2.5 rounded-2xl border bg-surface px-4 transition-all duration-200',
-          'focus-within:ring-2',
+          'focus-within:ring-1',
           error
-            ? 'border-danger focus-within:ring-[color-mix(in_srgb,var(--danger)_25%,transparent)]'
-            : 'border-border-strong hover:border-[color-mix(in_srgb,var(--brand)_45%,var(--border-strong))] focus-within:border-brand/60 focus-within:ring-[var(--ring-soft)]',
+            ? 'border-danger focus-within:border-transparent focus-within:ring-[var(--danger)]'
+            : 'border-border-strong hover:border-[color-mix(in_srgb,var(--brand)_45%,var(--border-strong))] focus-within:border-transparent focus-within:ring-[var(--ring-field)]',
         )}
       >
         {leading && <span className="text-subtle group-focus-within:text-brand">{leading}</span>}

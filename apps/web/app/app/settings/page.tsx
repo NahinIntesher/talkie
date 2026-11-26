@@ -103,7 +103,7 @@ function ProfileSection() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-5">
-        <label className="group relative cursor-pointer rounded-full focus-within:ring-2 focus-within:ring-[var(--ring-soft)]" aria-label={locale === 'bn' ? 'প্রোফাইল ছবি বদলান' : 'Change profile photo'}>
+        <label className="group relative cursor-pointer rounded-full focus-within:ring-1 focus-within:ring-[var(--ring-field)]" aria-label={locale === 'bn' ? 'প্রোফাইল ছবি বদলান' : 'Change profile photo'}>
           <Avatar name={name || user.displayName} src={user.avatarUrl} size={88} className="shadow-card ring-4 ring-surface" />
           <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 text-white opacity-0 transition-opacity group-hover:opacity-100">
             {photoBusy ? <Loader2 className="size-6 animate-spin" /> : <Camera className="size-6" />}

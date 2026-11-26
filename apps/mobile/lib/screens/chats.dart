@@ -90,7 +90,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                   suffixIcon: query.isEmpty ? null : IconButton(icon: const Icon(LucideIcons.x, size: 18), onPressed: () => setState(search.clear)),
                   contentPadding: const EdgeInsets.symmetric(vertical: 10),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(99), borderSide: BorderSide.none),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(99), borderSide: BorderSide(color: p.brand, width: 1.5)),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(99), borderSide: BorderSide(color: p.brand.withValues(alpha: 0.6), width: 1)),
                 ),
               ),
             ),

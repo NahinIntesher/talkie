@@ -79,7 +79,7 @@ export default function AdminUsersPage() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-8">
       <h2 className="text-2xl font-extrabold tracking-tight">{s.users}</h2>
-      <label className="mt-5 flex h-12 items-center gap-2.5 rounded-2xl bg-surface-2 px-4 transition focus-within:bg-surface focus-within:ring-2 focus-within:ring-[var(--ring-soft)]">
+      <label className="mt-5 flex h-12 items-center gap-2.5 rounded-2xl bg-surface-2 px-4 transition focus-within:bg-surface focus-within:ring-1 focus-within:ring-[var(--ring-field)]">
         <Search className="size-[1.1rem] text-subtle" aria-hidden />
         <input
           value={query}

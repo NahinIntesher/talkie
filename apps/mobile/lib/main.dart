@@ -43,7 +43,16 @@ class TalkieApp extends StatelessWidget {
     final session = context.watch<Session>();
     final signedIn = session.status == SessionStatus.signedIn;
     final app = MaterialApp(
-      builder: signedIn ? (context, child) => CallOverlay(child: child!) : null,
+      builder: (context, child) {
+        // Quicksand looks larger than Baloo Da 2 at the same size: English uses slightly smaller text (as on the web).
+        final content = signedIn ? CallOverlay(child: child!) : child!;
+        if (prefs.locale != 'en') return content;
+        final media = MediaQuery.of(context);
+        return MediaQuery(
+          data: media.copyWith(textScaler: _EnglishTextScaler(media.textScaler)),
+          child: content,
+        );
+      },
       title: 'Talkie',
       debugShowCheckedModeBanner: false,
       themeMode: prefs.theme,
@@ -70,6 +79,25 @@ class TalkieApp extends StatelessWidget {
       ),
     );
   }
+}
+
+class _EnglishTextScaler extends TextScaler {
+  const _EnglishTextScaler(this.systemScaler);
+
+  final TextScaler systemScaler;
+
+  @override
+  double scale(double fontSize) => systemScaler.scale(fontSize * 0.94);
+
+  @override
+  double get textScaleFactor => scale(14) / 14;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _EnglishTextScaler && other.systemScaler == systemScaler;
+
+  @override
+  int get hashCode => systemScaler.hashCode;
 }
 
 class _Splash extends StatelessWidget {

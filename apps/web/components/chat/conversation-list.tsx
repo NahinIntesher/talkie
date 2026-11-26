@@ -48,7 +48,7 @@ export function ConversationList({ activeId, onOpen, onNewChat }: { activeId: st
       </div>
 
       <div className="px-4">
-        <label className="flex h-11 items-center gap-2.5 rounded-2xl bg-surface-2 px-4 transition focus-within:bg-surface focus-within:ring-2 focus-within:ring-[var(--ring-soft)]">
+        <label className="flex h-11 items-center gap-2.5 rounded-2xl bg-surface-2 px-4 transition focus-within:bg-surface focus-within:ring-1 focus-within:ring-[var(--ring-field)]">
           <Search className="size-[1.1rem] text-subtle" aria-hidden />
           <span className="sr-only">{s.searchChats}</span>
           <input

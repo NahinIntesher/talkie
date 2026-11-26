@@ -145,7 +145,7 @@ export default function MeetPage() {
                 ]}
               />
               <form onSubmit={joinCode} className="flex flex-1 items-center gap-2">
-                <label className="flex h-13 flex-1 items-center gap-2.5 rounded-2xl border border-border-strong bg-surface px-4 focus-within:border-brand/60 focus-within:ring-2 focus-within:ring-[var(--ring-soft)]">
+                <label className="flex h-13 flex-1 items-center gap-2.5 rounded-2xl border border-border-strong bg-surface px-4 focus-within:border-transparent focus-within:ring-1 focus-within:ring-[var(--ring-field)]">
                   <Keyboard className="size-5 text-subtle" aria-hidden />
                   <span className="sr-only">{t.code}</span>
                   <input value={code} onChange={(e) => setCode(e.target.value)} placeholder={t.code} className="h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-subtle" />
