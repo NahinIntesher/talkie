@@ -67,14 +67,14 @@ jobs:
           cp -a ../build/cpanel/. .
           chmod +x update.sh
           {
-            echo '# Only on the server, never in git:'
-            echo '.env'
-            echo 'secrets/'
-            echo 'node_modules/'
-            echo 'data/'
-            echo 'tmp/'
-            echo '*.log'
-            echo '*.log.1'
+            echo '# Only on the server, never in git. Anchored to this folder: web/node_modules (the web app’s own packages) is part of the build.'
+            echo '/.env'
+            echo '/secrets/'
+            echo '/node_modules/'
+            echo '/data/'
+            echo '/tmp/'
+            echo '/*.log'
+            echo '/*.log.1'
           } > .gitignore
           git add -A
           if git diff --cached --quiet; then echo "No changes."; exit 0; fi
