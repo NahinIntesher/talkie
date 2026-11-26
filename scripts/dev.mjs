@@ -1,5 +1,5 @@
 // Starts every implemented service plus the web app, each in its own process, with prefixed coloured logs.
-// `npm run dev` — all; `npm run dev -- auth users` — only those services (plus web).
+// `npm run dev`, all; `npm run dev -- auth users`, only those services (plus web).
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';

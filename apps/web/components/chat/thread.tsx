@@ -415,7 +415,7 @@ export function Thread({ conversationId, onBack, onInfo }: { conversationId: str
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-sm text-subtle">—</p>
+                  <p className="text-sm text-subtle">-</p>
                 )}
               </div>
             ))}

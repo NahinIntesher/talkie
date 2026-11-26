@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:sodium_libs/sodium_libs.dart';
 
-/// Talkie end-to-end encryption (v1) — byte-for-byte the same as packages/e2ee on the web:
+/// Talkie end-to-end encryption (v1), byte-for-byte the same as packages/e2ee on the web:
 /// * a device owns an X25519 key pair (crypto_box); only the public key leaves the phone;
 /// * each message body is encrypted once with XChaCha20-Poly1305 under a fresh key K;
 /// * K is sealed for every recipient device with crypto_box_easy: nonce(24) ‖ box(K);

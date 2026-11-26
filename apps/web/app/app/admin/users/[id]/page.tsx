@@ -62,7 +62,7 @@ export default function AdminPersonPage({ params }: { params: Promise<{ id: stri
 
   const person = data.user;
   const canManage = me?.id !== person.id && rank[myRole] > rank[person.role];
-  const n = (value: number | undefined) => (value === undefined ? '—' : formatNumber(value, locale));
+  const n = (value: number | undefined) => (value === undefined ? '-' : formatNumber(value, locale));
 
   return (
     <div className="mx-auto max-w-4xl space-y-5 px-4 py-6 sm:px-8 sm:py-8">
@@ -145,16 +145,16 @@ export default function AdminPersonPage({ params }: { params: Promise<{ id: stri
         <Panel title={s.activity}>
           <dl className="grid grid-cols-2 gap-4 text-sm">
             <Fact label={s.messagesSent}>{n(data.activity?.messagesSent)}</Fact>
-            <Fact label={s.lastMessage}>{ago(data.activity?.lastMessageAt ?? null, locale) ?? '—'}</Fact>
+            <Fact label={s.lastMessage}>{ago(data.activity?.lastMessageAt ?? null, locale) ?? '-'}</Fact>
             <Fact label={s.directChats}>{n(data.activity?.directChats)}</Fact>
             <Fact label={s.groups}>{n(data.activity?.groups)}</Fact>
             <Fact label={s.groupsOwned}>{n(data.activity?.groupsOwned)}</Fact>
-            <Fact label={s.storageUsed}>{data.storage ? formatBytes(data.storage.bytes, locale) : '—'}</Fact>
+            <Fact label={s.storageUsed}>{data.storage ? formatBytes(data.storage.bytes, locale) : '-'}</Fact>
           </dl>
         </Panel>
         <Panel title={s.linkedDevices}>
           {data.devices.length === 0 ? (
-            <p className="text-sm text-muted">—</p>
+            <p className="text-sm text-muted">-</p>
           ) : (
             <ul className="space-y-2">
               {data.devices.map((device) => (

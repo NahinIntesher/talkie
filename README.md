@@ -1,11 +1,11 @@
 # Talkie
 
-End-to-end encrypted messaging, calls and meetings — Next.js web app, Flutter Android app, Node.js microservices.
+End-to-end encrypted messaging, calls and meetings, Next.js web app, Flutter Android app, Node.js microservices.
 
-- [Feature study](docs/FEATURE_STUDY.md) — what Talkie does, by priority
-- [Architecture](docs/ARCHITECTURE.md) — services, security, database, performance, phases
-- [Databases](database/README.md) — one MySQL database per service
-- [Deploying](docs/DEPLOY.md) — VPS setup, first deploy, updates, backups, Android release build
+- [Feature study](docs/FEATURE_STUDY.md), what Talkie does, by priority
+- [Architecture](docs/ARCHITECTURE.md), services, security, database, performance, phases
+- [Databases](database/README.md), one MySQL database per service
+- [Deploying](docs/DEPLOY.md), VPS setup, first deploy, updates, backups, Android release build
 
 ## Run locally (Windows)
 

@@ -26,7 +26,8 @@ export function Toaster({ children }: { children: ReactNode }) {
   return (
     <Context.Provider value={push}>
       {children}
-      <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-6 z-[100] flex flex-col items-center gap-2 px-4">
+      {/* Phones: top of the screen, so a message never covers the composer or the keyboard. Larger screens: bottom. */}
+      <div aria-live="polite" className="pointer-events-none fixed inset-x-0 top-[max(0.75rem,env(safe-area-inset-top))] z-[100] flex flex-col items-center gap-2 px-4 sm:top-auto sm:bottom-6">
         <AnimatePresence>
           {toasts.map((toast) => {
             const Icon = icons[toast.tone];
@@ -36,7 +37,7 @@ export function Toaster({ children }: { children: ReactNode }) {
                 initial={{ opacity: 0, y: 16, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                className="glass pointer-events-auto flex max-w-md items-center gap-3 rounded-2xl border border-border px-4 py-3 text-sm font-medium shadow-float"
+                className="glass pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-2xl border border-border px-4 py-3 text-sm font-medium shadow-float sm:w-auto"
               >
                 <Icon className={clsx('size-5 shrink-0', toast.tone === 'success' && 'text-success', toast.tone === 'error' && 'text-danger', toast.tone === 'info' && 'text-brand')} />
                 {toast.message}

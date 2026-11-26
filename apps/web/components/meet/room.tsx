@@ -806,7 +806,7 @@ function Breakouts({ t }: { t: T }) {
         {breakouts.map((room) => (
           <div key={room.id} className="rounded-2xl border border-border p-3">
             <p className="font-bold">{room.name}</p>
-            <p className="mt-1 text-sm text-muted">{room.userIds.map((id) => nameOf(chat, id)).join(', ') || '—'}</p>
+            <p className="mt-1 text-sm text-muted">{room.userIds.map((id) => nameOf(chat, id)).join(', ') || '-'}</p>
           </div>
         ))}
         <form
@@ -840,7 +840,7 @@ function Breakouts({ t }: { t: T }) {
       {plan.map((room) => (
         <div key={room.name} className="rounded-2xl border border-border p-3 text-sm">
           <p className="font-bold">{room.name}</p>
-          <p className="text-muted">{room.participantIds.map((id) => nameOf(chat, participants.find((p) => p.id === id)!.userId)).join(', ') || '—'}</p>
+          <p className="text-muted">{room.participantIds.map((id) => nameOf(chat, participants.find((p) => p.id === id)!.userId)).join(', ') || '-'}</p>
         </div>
       ))}
       <Button block disabled={!people.length} onClick={() => void meet.openBreakouts(plan, minutes ? Number(minutes) : null)}>

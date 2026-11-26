@@ -6,14 +6,14 @@ import { themeScript } from '@/lib/theme';
 import './globals.css';
 
 // English in Quicksand, Bangla in Baloo Da 2. Baloo is loaded for the Bengali range only, so every Latin letter, digit
-// and symbol stays in Quicksand while Bangla letters fall through to Baloo — in either app language.
+// and symbol stays in Quicksand while Bangla letters fall through to Baloo, in either app language.
 const latin = Quicksand({ subsets: ['latin'], variable: '--font-latin', display: 'swap' });
 const bangla = Baloo_Da_2({ subsets: ['bengali'], variable: '--font-bangla', display: 'swap' });
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://talkie.kodofact.com'),
-  title: { default: 'Talkie — Private messaging and meetings', template: '%s · Talkie' },
-  description: 'End-to-end encrypted messaging, voice and video calls, and beautiful meetings — on Android and the web.',
+  title: { default: 'Talkie: Private messaging and meetings', template: '%s · Talkie' },
+  description: 'End-to-end encrypted messaging, voice and video calls, and beautiful meetings, on Android and the web.',
   applicationName: 'Talkie',
   icons: {
     icon: [{ url: '/icon.svg', type: 'image/svg+xml' }, { url: '/icon-192.png', sizes: '192x192', type: 'image/png' }],

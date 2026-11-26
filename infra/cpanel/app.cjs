@@ -119,14 +119,39 @@ async function health(res) {
       request.on('timeout', () => request.destroy());
       request.on('error', () => resolve('down'));
     });
+  // Install checks from the services themselves: LiveKit keys, email login, Firebase key (answers only, no secrets).
+  const selfcheck = (name) =>
+    new Promise((resolve) => {
+      const request = http.get(
+        { host: '127.0.0.1', port: port[name], path: '/internal/selfcheck', timeout: 9000, headers: { 'x-internal-token': process.env.INTERNAL_TOKEN || '' } },
+        (reply) => {
+          let body = '';
+          reply.on('data', (chunk) => (body += chunk));
+          reply.on('end', () => {
+            try {
+              resolve(reply.statusCode === 200 ? JSON.parse(body) : { [name]: `error ${reply.statusCode}` });
+            } catch {
+              resolve({ [name]: 'unreadable answer' });
+            }
+          });
+        },
+      );
+      request.on('timeout', () => request.destroy());
+      request.on('error', () => resolve({ [name]: 'down' }));
+    });
   const names = SERVICES.map(([name]) => name);
-  const results = await Promise.all([...names.map((name) => probe(port[name], '/healthz')), probe(port.web, '/')]);
+  const [results, meetCheck, notifyCheck] = await Promise.all([
+    Promise.all([...names.map((name) => probe(port[name], '/healthz')), probe(port.web, '/')]),
+    selfcheck('meet'),
+    selfcheck('notify'),
+  ]);
   const body = {
     gateway: 'up',
     host: typeof PhusionPassenger !== 'undefined' ? 'passenger' : 'litespeed-or-node',
     uptimeSeconds: Math.round(process.uptime()),
     services: Object.fromEntries(names.map((name, i) => [name, results[i]])),
     web: results[names.length],
+    checks: { ...meetCheck, ...notifyCheck },
     node: process.version,
   };
   const ok = Object.values(body.services).every((v) => v === 'up') && body.web === 'up';
@@ -236,7 +261,7 @@ async function runServices() {
       await runMigrations(path.join(ROOT, 'database'));
       log('database is up to date');
     } catch (error) {
-      log('database migration failed — check DB_* settings:', error && error.message);
+      log('database migration failed, check DB_* settings:', error && error.message);
     }
   }
   // Each service reads its settings while it loads, so the per-service values are set just before its import.

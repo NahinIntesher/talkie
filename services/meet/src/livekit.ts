@@ -53,6 +53,18 @@ export function createLiveKit(env: LiveKitEnv, log: Logger) {
     configured,
     url: env.LIVEKIT_URL ?? '',
 
+    /** Install check: are the URL, key and secret accepted by the media server? Never returns secrets. */
+    async check(): Promise<string> {
+      if (!configured) return 'not configured';
+      try {
+        await Promise.race([rooms!.listRooms(), new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), 6000))]);
+        return 'ok';
+      } catch (error) {
+        const message = String((error as Error)?.message ?? error);
+        return /401|unauthor|invalid/i.test(message) ? 'rejected: wrong LIVEKIT_API_KEY or LIVEKIT_API_SECRET' : `unreachable: ${message.slice(0, 120)}`;
+      }
+    },
+
     async token(input: { room: string; identity: string; name: string; metadata: Record<string, unknown>; sources: Sources; admin?: boolean; ttlSeconds?: number }) {
       require();
       const token = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {

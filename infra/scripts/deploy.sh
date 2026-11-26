@@ -32,14 +32,14 @@ if [[ ! -f .env ]]; then
   cp infra/env.production.example .env
   sed -i "s|^INTERNAL_TOKEN=.*|INTERNAL_TOKEN=$(random)|; s|^OTP_PEPPER=.*|OTP_PEPPER=$(random)|" .env
   chmod 600 .env
-  say "Created .env — fill in OWNER_EMAILS, SMTP_* and LIVEKIT_*, then run this script again."
+  say "Created .env, fill in OWNER_EMAILS, SMTP_* and LIVEKIT_*, then run this script again."
   exit 0
 fi
 get() { grep -E "^$1=" .env | tail -n1 | cut -d= -f2-; }
 [[ "$(get NODE_ENV)" == "production" ]] || { echo ".env must have NODE_ENV=production" >&2; exit 1; }
 [[ -n "$(get SMTP_HOST)" ]] || { echo ".env: SMTP_HOST is required (sign-in codes are sent by email)" >&2; exit 1; }
-[[ -n "$(get OWNER_EMAILS)" ]] || echo "    warning: OWNER_EMAILS is empty — nobody will be able to open the admin panel"
-[[ -n "$(get LIVEKIT_URL)" ]] || echo "    warning: LIVEKIT_URL is empty — calls and meetings are turned off"
+[[ -n "$(get OWNER_EMAILS)" ]] || echo "    warning: OWNER_EMAILS is empty, nobody will be able to open the admin panel"
+[[ -n "$(get LIVEKIT_URL)" ]] || echo "    warning: LIVEKIT_URL is empty, calls and meetings are turned off"
 grep -qE '^DEV_FIXED_OTP=.+' .env && { echo ".env: remove DEV_FIXED_OTP in production" >&2; exit 1; }
 
 # DB_HOST set → a hosted database (cPanel); empty → the bundled MySQL container.
@@ -49,7 +49,7 @@ if [[ -n "$(get DB_HOST)" ]]; then
   elif [[ -n "$(get DB_NAME_PREFIX)" ]]; then
     echo "    databases: $(get DB_NAME_PREFIX)auth, $(get DB_NAME_PREFIX)users, … on $(get DB_HOST) (hosted)"
   else
-    echo "    warning: set DB_SHARED_NAME (one database) or DB_NAME_PREFIX — otherwise databases must be named talkie_auth, talkie_users, …"
+    echo "    warning: set DB_SHARED_NAME (one database) or DB_NAME_PREFIX, otherwise databases must be named talkie_auth, talkie_users, …"
   fi
   grep -qE '^DB_PASSWORD=.*\$' .env && { echo ".env: DB_PASSWORD contains \$, which Docker Compose would expand; change the password" >&2; exit 1; }
 else

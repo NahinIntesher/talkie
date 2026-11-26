@@ -28,7 +28,7 @@ export default function SettingsPage() {
     <div className="flex h-full flex-col md:flex-row">
       <aside className="border-b border-border bg-surface md:w-[300px] md:border-r md:border-b-0">
         <h1 className="px-5 pt-5 pb-3 text-2xl font-extrabold tracking-tight">{t.settings.title}</h1>
-        <nav className="scrollbar-thin flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:overflow-visible" aria-label={t.settings.title}>
+        <nav className="scrollbar-thin flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:overflow-visible [mask-image:linear-gradient(to_right,black_88%,transparent)] md:[mask-image:none]" aria-label={t.settings.title}>
           {sections.map((item) => (
             <button
               key={item.id}

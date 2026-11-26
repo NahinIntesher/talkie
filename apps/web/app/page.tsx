@@ -1,6 +1,8 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { motion } from 'motion/react';
 import {
   ArrowRight,
@@ -31,6 +33,11 @@ export default function Landing() {
   const { t, locale } = useI18n();
   const { status } = useSession();
   const signedIn = status === 'signed_in';
+  const router = useRouter();
+  // Signed in: the landing page is for visitors; go straight to the chats.
+  useEffect(() => {
+    if (signedIn) router.replace('/app');
+  }, [signedIn, router]);
   const features = [
     { icon: MessageCircle, ...t.features.chat, tone: 'from-amber-400 to-orange-500' },
     { icon: Users, ...t.features.groups, tone: 'from-orange-400 to-rose-500' },

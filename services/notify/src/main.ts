@@ -81,9 +81,9 @@ service.app.put('/notify/push-token', { preHandler: guards.requireAuth }, async 
 
 const bus = createBus(env, service.log, 'notify');
 const account = loadServiceAccount(env);
-if (!account) service.log.warn('FIREBASE_SERVICE_ACCOUNT is not set: push notifications are off');
+const fcm = account ? createFcm(account, service.log) : null;
+if (!fcm) service.log.warn('FIREBASE_SERVICE_ACCOUNT is not set: push notifications are off');
 else {
-  const fcm = createFcm(account, service.log);
   const push = pushHandlers({
     origin: env.PUBLIC_ORIGIN.replace(/\/$/, ''),
     db,
@@ -107,6 +107,20 @@ else {
   });
   service.log.info({ project: fcm.projectId }, 'push notifications on');
 }
+
+/** Install check for /api/health (internal only): email login and the Firebase key. */
+service.app.get('/internal/selfcheck', { preHandler: guards.requireInternal }, async () => {
+  let email = 'not configured';
+  if (mailer) {
+    try {
+      await mailer.verify();
+      email = 'ok';
+    } catch (error) {
+      email = `rejected: ${String((error as Error)?.message ?? error).slice(0, 120)}`;
+    }
+  }
+  return { email, push: fcm ? await fcm.check() : 'not configured' };
+});
 
 /** Turns push notifications off for this device (the app calls it when the person turns notifications off or signs out). */
 service.app.delete('/notify/push-token', { preHandler: guards.requireAuth }, async (request) => {

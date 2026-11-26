@@ -43,6 +43,9 @@ registerMeetingRoutes(service.app, ctx, { callRoomFinished: calls.roomFinished }
 registerAdminRoutes(service.app, ctx);
 
 /** Lets clients know whether calls can be placed on this server. */
+/** Install check for /api/health (internal only). */
+service.app.get('/internal/selfcheck', { preHandler: guards.requireInternal }, async () => ({ livekit: await lk.check() }));
+
 service.app.get('/meet/config', { preHandler: guards.requireAuth }, async () => ({ enabled: lk.configured, recording: lk.recordingAvailable }));
 
 const sweep = setInterval(() => {

@@ -47,7 +47,7 @@ const words: Record<Locale, Record<string, string> & { text: string; hidden: str
 };
 
 interface Deps {
-  /** https://talkie.kodofact.com — where web notifications lead. */
+  /** https://talkie.kodofact.com, where web notifications lead. */
   origin: string;
   db: Database;
   fcm: Fcm;

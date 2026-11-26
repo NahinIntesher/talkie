@@ -11,7 +11,7 @@ mkdirSync(secrets, { recursive: true });
 const privatePath = resolve(secrets, 'jwt-private.pem');
 const publicPath = resolve(secrets, 'jwt-public.pem');
 if (existsSync(privatePath)) {
-  console.log('secrets/jwt-private.pem already exists — keeping it.');
+  console.log('secrets/jwt-private.pem already exists, keeping it.');
 } else {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519', {
     privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
@@ -24,7 +24,7 @@ if (existsSync(privatePath)) {
 
 const envPath = resolve(root, '.env');
 if (existsSync(envPath)) {
-  console.log('.env already exists — keeping it.');
+  console.log('.env already exists, keeping it.');
 } else {
   const template = readFileSync(resolve(root, '.env.example'), 'utf8');
   const secret = () => randomBytes(32).toString('base64url');

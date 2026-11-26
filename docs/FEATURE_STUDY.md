@@ -1,4 +1,4 @@
-# Talkie — Feature study and requirements
+# Talkie, Feature study and requirements
 
 Talkie is a Next.js web app and a Flutter mobile app (Android + iOS) with two halves:
 
@@ -7,7 +7,7 @@ Talkie is a Next.js web app and a Flutter mobile app (Android + iOS) with two ha
 
 It is an original product: it copies *behaviour*, not names, logos, icons, colours or text of WhatsApp or Google Meet.
 
-Researched 24 Nov 2026 from WhatsApp's blog and Meta newsroom, Google's Workspace edition matrix and Meet product page, and third-party reviews (sources at the end). Where Diganta (`F:\Diganta`) already does something, it is marked **[D]** — that code is a starting point, not a finished feature.
+Researched 24 Nov 2026 from WhatsApp's blog and Meta newsroom, Google's Workspace edition matrix and Meet product page, and third-party reviews (sources at the end). Where Diganta (`F:\Diganta`) already does something, it is marked **[D]**, that code is a starting point, not a finished feature.
 
 Priority: **P1** = first release, **P2** = second release, **P3** = later / optional.
 
@@ -18,7 +18,7 @@ Priority: **P1** = first release, **P2** = second release, **P3** = later / opti
 | Topic | Decision | What it means |
 |---|---|---|
 | Sign-up | **Email OTP + username** | No SMS gateway. People find each other by username (and QR/invite link), not by phone contacts. Phone-book contact discovery (A1) is dropped. |
-| Encryption | **Full end-to-end encryption** | Proposed: Olm (1:1, per device) + Megolm (groups) through **vodozemac**, which has both a Dart (Flutter) and a WASM (web) build. Server stores only ciphertext. Each linked device has its own keys; new devices get history via key backup protected by a recovery key/passphrase. Server-side message search is not possible — search runs on each device. Media files are encrypted on the device before upload. 1:1 and group **chat calls** use LiveKit E2EE. |
+| Encryption | **Full end-to-end encryption** | Proposed: Olm (1:1, per device) + Megolm (groups) through **vodozemac**, which has both a Dart (Flutter) and a WASM (web) build. Server stores only ciphertext. Each linked device has its own keys; new devices get history via key backup protected by a recovery key/passphrase. Server-side message search is not possible, search runs on each device. Media files are encrypted on the device before upload. 1:1 and group **chat calls** use LiveKit E2EE. |
 | Media server | **LiveKit Cloud** | No media VPS, TURN or Egress server to run. Recording, YouTube streaming and noise cancellation come from LiveKit Cloud (usage-billed). |
 | Size | **Small: under 1,000 users** | One VPS for API + database + Redis; object storage for files. Meetings up to ~100 people. |
 
@@ -26,7 +26,7 @@ Priority: **P1** = first release, **P2** = second release, **P3** = later / opti
 
 ---
 
-## Part A — Messaging (WhatsApp-style)
+## Part A, Messaging (WhatsApp-style)
 
 ### A1. Account and identity
 | Feature | Priority | Notes |
@@ -52,7 +52,7 @@ Priority: **P1** = first release, **P2** = second release, **P3** = later / opti
 | Star messages, pin up to 3 messages (24 h / 7 d / 30 d / forever) | P1 | [D] star, pin |
 | Search inside chat and across all chats; filter by media/links/docs | P1 | [D] per-chat search |
 | Voice notes with waveform, play speed 1×/1.5×/2×, listen before sending, locked recording | P1 | [D] voice notes |
-| Photos & videos (HD option), albums, camera, captions, crop/draw/text/stickers editor | P1 | [D] attachments up to 5 MB — must go up to 2 GB with chunked upload |
+| Photos & videos (HD option), albums, camera, captions, crop/draw/text/stickers editor | P1 | [D] attachments up to 5 MB, must go up to 2 GB with chunked upload |
 | Documents up to 2 GB | P1 | |
 | Location share and **live location** (15 min / 1 h / 8 h) | P2 | Needs maps SDK |
 | Contact cards | P2 | |
@@ -118,7 +118,7 @@ Priority: **P1** = first release, **P2** = second release, **P3** = later / opti
 
 ---
 
-## Part B — Meetings and live streaming (Google Meet-style)
+## Part B, Meetings and live streaming (Google Meet-style)
 
 ### B1. Creating and joining
 | Feature | Priority | Notes |
@@ -128,7 +128,7 @@ Priority: **P1** = first release, **P2** = second release, **P3** = later / opti
 | Green room / pre-join preview: camera, mic, speaker test, choose devices, backgrounds | P1 | [D] device selection |
 | Calendar invite with RSVP (.ics, Google Calendar), reminders | P2 | |
 | Guests without an account (name only) | P2 | |
-| Phone dial-in (number + PIN) | P3 | Needs a SIP/telephony provider — costs money per minute |
+| Phone dial-in (number + PIN) | P3 | Needs a SIP/telephony provider, costs money per minute |
 | Companion mode (second device for chat/polls/hand-raise, no echo) | P3 | |
 
 ### B2. Host controls and safety
@@ -163,10 +163,10 @@ Priority: **P1** = first release, **P2** = second release, **P3** = later / opti
 |---|---|---|
 | Cloud recording (up to 1080p), everyone notified, saved to storage, download/share link | P2 | LiveKit Egress |
 | Attendance report (name, join/leave, minutes) | P1 | [D] |
-| Live captions | P2 | Speech-to-text API — paid per minute, or self-hosted Whisper (needs a GPU) |
+| Live captions | P2 | Speech-to-text API, paid per minute, or self-hosted Whisper (needs a GPU) |
 | Transcript saved after meeting | P2 | Same as captions |
 | Translated captions / speech translation | P3 | Paid API |
-| AI notes: summary, action items, "take notes for me" | P3 | LLM API (e.g. Claude) — paid per use |
+| AI notes: summary, action items, "take notes for me" | P3 | LLM API (e.g. Claude), paid per use |
 
 ### B5. Live streaming
 | Feature | Priority | Notes |
@@ -183,7 +183,7 @@ Priority: **P1** = first release, **P2** = second release, **P3** = later / opti
 
 ---
 
-## Part C — What you need to host it
+## Part C, What you need to host it
 
 ### C1. Servers
 
@@ -204,7 +204,7 @@ Ports to open on the media server: 443 TCP, 7881 TCP, 3478 UDP, 50000–60000 UD
 |---|---|
 | Web | Next.js (App Router, TypeScript), LiveKit web SDK |
 | Mobile | Flutter (Android + iOS), `livekit_client`, `flutter_callkit_incoming`, `firebase_messaging` |
-| API | Node.js (NestJS or Express, TypeScript) — Express matches Diganta |
+| API | Node.js (NestJS or Express, TypeScript), Express matches Diganta |
 | Realtime | Socket.IO / WebSocket gateway with a Redis adapter so it can run on more than one server |
 | Database | PostgreSQL (or MySQL like Diganta) |
 | Cache / presence / queues | Redis |
@@ -221,7 +221,7 @@ Ports to open on the media server: 443 TCP, 7881 TCP, 3478 UDP, 50000–60000 UD
 | Firebase project (FCM) | Push notifications on Android and web | Free |
 | Apple Developer Program | iOS app, APNs push, **PushKit VoIP** for ringing calls | USD 99 / year |
 | Google Play Console | Android app | USD 25 once |
-| Transactional email provider (e.g. Resend, Brevo, Amazon SES, Mailgun) | **Email OTP sign-up** — must deliver fast and not land in spam; needs SPF/DKIM/DMARC on your domain | Free tier usually enough for <1,000 users |
+| Transactional email provider (e.g. Resend, Brevo, Amazon SES, Mailgun) | **Email OTP sign-up**, must deliver fast and not land in spam; needs SPF/DKIM/DMARC on your domain | Free tier usually enough for <1,000 users |
 | **LiveKit Cloud** project (URL, API key, API secret) | All calls, meetings, recording, streaming, noise cancellation | Free tier, then usage-based |
 | Speech-to-text (optional) | Captions, transcripts | Per minute |
 | LLM API (optional) | AI meeting notes, summaries | Per use |
@@ -230,7 +230,7 @@ Ports to open on the media server: 443 TCP, 7881 TCP, 3478 UDP, 50000–60000 UD
 
 ---
 
-## Part D — Reuse from Diganta
+## Part D, Reuse from Diganta
 
 Diganta already has working code for: 1:1 and group chat, reactions, pins, stars, reply/forward, edit/delete time windows, ticks, typing, presence, voice notes, attachments, mute, search, chat themes, LiveKit 1:1 and group calls (up to 30), live classroom with waiting room, lock, mute/remove, raise hand, chat, reactions, attendance, Socket.IO realtime, FCM push, MFA, device limits.
 
@@ -239,6 +239,6 @@ It is tied to coaching roles (admin/moderator/teacher/student) and courses, stor
 ---
 
 ## Sources
-- WhatsApp: [9to5Mac — four new group features (Oct 2026)](https://9to5mac.com/2026/10/30/whatsapp-announces-four-new-features-to-make-group-chats-easier-to-manage/), [Meta newsroom — storage, account switching (Mar 2026)](https://about.fb.com/news/2026/03/whatsapp-new-features-simplify-storage-switch-accounts/), [WhatsApp blog — member tags, text stickers, event reminders](https://blog.whatsapp.com/level-up-your-whatsapp-group-chats-with-new-member-tags-text-stickers-and-more), [Al Jazeera — usernames and privacy (Jun 2026)](https://www.aljazeera.com/news/2026/6/30/what-privacy-settings-has-whatsapp-changed), [WhatsApp blog — group chats, events, calls, channels](https://blog.whatsapp.com/new-feature-roundup-updates-to-group-chats-events-calls-channels-and-more?lang=en), [Roklo — 2026 feature list (secondary)](https://www.roklo.ai/blog/whatsapp-new-features-2026)
-- Google Meet: [Compare Meet features across Workspace editions (official)](https://knowledge.workspace.google.com/admin/meet/compare-meet-features-across-google-workspace-editions), [Google Meet product page](https://workspace.google.com/products/meet/), [Workspace blog — Meet admin guide](https://www.workspaceblog.in/blog/google-meet-enterprise-admin-guide/), [Docam — Meet tips (secondary)](https://docam.io/knowledge/google-meet-tips-and-tricks)
+- WhatsApp: [9to5Mac, four new group features (Oct 2026)](https://9to5mac.com/2026/10/30/whatsapp-announces-four-new-features-to-make-group-chats-easier-to-manage/), [Meta newsroom, storage, account switching (Mar 2026)](https://about.fb.com/news/2026/03/whatsapp-new-features-simplify-storage-switch-accounts/), [WhatsApp blog, member tags, text stickers, event reminders](https://blog.whatsapp.com/level-up-your-whatsapp-group-chats-with-new-member-tags-text-stickers-and-more), [Al Jazeera, usernames and privacy (Jun 2026)](https://www.aljazeera.com/news/2026/6/30/what-privacy-settings-has-whatsapp-changed), [WhatsApp blog, group chats, events, calls, channels](https://blog.whatsapp.com/new-feature-roundup-updates-to-group-chats-events-calls-channels-and-more?lang=en), [Roklo, 2026 feature list (secondary)](https://www.roklo.ai/blog/whatsapp-new-features-2026)
+- Google Meet: [Compare Meet features across Workspace editions (official)](https://knowledge.workspace.google.com/admin/meet/compare-meet-features-across-google-workspace-editions), [Google Meet product page](https://workspace.google.com/products/meet/), [Workspace blog, Meet admin guide](https://www.workspaceblog.in/blog/google-meet-enterprise-admin-guide/), [Docam, Meet tips (secondary)](https://docam.io/knowledge/google-meet-tips-and-tricks)
 - LiveKit hosting: [Ports and firewall](https://docs.livekit.io/transport/self-hosting/ports-firewall/), [Deployment](https://docs.livekit.io/transport/self-hosting/deployment/)

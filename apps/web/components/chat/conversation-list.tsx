@@ -175,7 +175,7 @@ const Row = memo(function Row({ id, active, onOpen }: { id: string; active: bool
                 </span>
               </>
             ) : (
-              <span className="truncate italic">{s.emptyThread}</span>
+              <span className="truncate text-subtle">{s.emptyThread}</span>
             )}
           </span>
           {conversation.mutedUntil && <BellOff className="size-4 shrink-0 text-subtle" aria-label={s.mute} />}

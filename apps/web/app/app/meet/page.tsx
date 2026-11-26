@@ -160,7 +160,10 @@ export default function MeetPage() {
               talkie.kodofact.com/meet/abc-defg-hij
             </p>
           </div>
-          <Illustration />
+          {/* Decorative: only where there is room for it. */}
+          <div className="hidden md:block">
+            <Illustration />
+          </div>
         </div>
 
         <section className="mt-14">
@@ -281,7 +284,7 @@ function ScheduleDialog({ open, onClose, onCreate }: { open: boolean; onClose: (
 }
 
 function Illustration() {
-  const tiles = ['from-indigo-500 to-violet-600', 'from-fuchsia-500 to-pink-600', 'from-sky-500 to-indigo-600', 'from-emerald-500 to-teal-600'];
+  const tiles = ['from-amber-400 to-orange-600', 'from-rose-400 to-pink-600', 'from-sky-500 to-cyan-600', 'from-emerald-500 to-teal-600'];
   return (
     <div className="relative mx-auto w-full max-w-md" aria-hidden>
       <div className="absolute -inset-8 rounded-full bg-brand-gradient opacity-20 blur-3xl" />

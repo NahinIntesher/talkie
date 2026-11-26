@@ -20,7 +20,7 @@ let failures = 0;
 
 const check = (label: string, ok: boolean, detail?: unknown) => {
   if (!ok) failures++;
-  console.log(`${ok ? '\x1b[32m✓' : '\x1b[31m✗'} ${label}\x1b[0m${ok || detail === undefined ? '' : ` — ${JSON.stringify(detail)}`}`);
+  console.log(`${ok ? '\x1b[32m✓' : '\x1b[31m✗'} ${label}\x1b[0m${ok || detail === undefined ? '' : `, ${JSON.stringify(detail)}`}`);
 };
 
 function start(name: string) {
@@ -137,13 +137,13 @@ async function main() {
   const again = await call('chat', '/chat/conversations/direct', { token: rafi.token, body: { userId: ayesha.userId } });
   check('one direct conversation per pair', again.body.conversation.id === conversationId);
 
-  const sent = await send(ayesha, conversationId, 'Hello Rafi 👋 — this is encrypted');
+  const sent = await send(ayesha, conversationId, 'Hello Rafi 👋, this is encrypted');
   check('message sent', sent.status === 201, sent.body);
   const live = await until(() => rafi.events.find((e) => e.event === 'chat:message' && e.payload.conversationId === conversationId));
   check('Rafi got a live event', !!live);
   const texts = await readAll(rafi, conversationId, deviceKeys);
-  check('Rafi decrypts the message', texts.at(-1) === 'Hello Rafi 👋 — this is encrypted', texts);
-  check('Ayesha can read her own message', (await readAll(ayesha, conversationId, deviceKeys)).at(-1) === 'Hello Rafi 👋 — this is encrypted');
+  check('Rafi decrypts the message', texts.at(-1) === 'Hello Rafi 👋, this is encrypted', texts);
+  check('Ayesha can read her own message', (await readAll(ayesha, conversationId, deviceKeys)).at(-1) === 'Hello Rafi 👋, this is encrypted');
 
   const messageId = sent.body.message.id as string;
   const raw = await call('chat', `/chat/conversations/${conversationId}/messages`, { token: rafi.token });

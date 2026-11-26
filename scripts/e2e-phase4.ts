@@ -1,5 +1,5 @@
 // Phase 4 checks (calls and meetings), run by e2e-chat.ts. The test signs media tokens with a development key;
-// no media server is needed because Talkie only decides who may join — LiveKit carries the audio and video.
+// no media server is needed because Talkie only decides who may join, LiveKit carries the audio and video.
 import { decodeJwt } from 'jose';
 import * as e2ee from '@talkie/e2ee';
 import type { Person } from './e2e-phase3.ts';

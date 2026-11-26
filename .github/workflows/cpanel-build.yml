@@ -1,6 +1,6 @@
 # Builds the cPanel app on Linux (the same OS as the server) after every push to main, and publishes it to the
 # `cpanel` branch, so the server updates with `bash update.sh` (git pull + install if needed + restart).
-# Code only: no .env and no secrets/ — those exist only on the server and are git-ignored there.
+# Code only: no .env and no secrets/, those exist only on the server and are git-ignored there.
 # The same build is also attached to each run as the talkie-cpanel artifact. See docs/DEPLOY.md → "cPanel".
 name: cPanel build
 

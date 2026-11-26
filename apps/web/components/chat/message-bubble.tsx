@@ -144,7 +144,7 @@ export const MessageBubble = memo(function MessageBubble({
         >
           {isGroup && !mine && firstOfRun && <p className={clsx('mb-0.5 text-[0.8rem] font-bold', senderTone(message.senderId))}>{nameOf(state, message.senderId, s.you)}</p>}
           {message.forwardedCount > 0 && !deleted && (
-            <p className="mb-0.5 flex items-center gap-1 text-xs italic opacity-70">
+            <p className="mb-0.5 flex items-center gap-1 text-xs font-medium opacity-75">
               <Forward className="size-3.5" aria-hidden />
               {s.forwarded}
             </p>
@@ -152,14 +152,14 @@ export const MessageBubble = memo(function MessageBubble({
           {message.replyToId && !deleted && (
             <button
               onClick={() => actions.jumpTo(message.replyToId!)}
-              className={clsx('mb-1 block w-full rounded-lg border-l-4 px-2.5 py-1.5 text-left text-[0.82rem]', mine ? 'border-white/70 bg-black/10' : 'border-brand bg-surface-2')}
+              className={clsx('mb-1 block w-full rounded-lg border-l-4 px-2.5 py-1.5 text-left text-[0.82rem]', mine ? 'border-[var(--bubble-ink-70)] bg-[var(--bubble-ink-12)]' : 'border-brand bg-surface-2')}
             >
-              <span className={clsx('block text-xs font-bold', mine ? 'text-white/90' : 'text-brand')}>{reply ? nameOf(state, reply.senderId, s.you) : '…'}</span>
+              <span className={clsx('block text-xs font-bold', mine ? 'text-[var(--bubble-out-text)]' : 'text-brand')}>{reply ? nameOf(state, reply.senderId, s.you) : '…'}</span>
               <span className="line-clamp-2 opacity-80">{reply ? previewText(state, reply, reply.body, s) : '…'}</span>
             </button>
           )}
           {deleted ? (
-            <p className="flex items-center gap-1.5 italic opacity-70">
+            <p className="flex items-center gap-1.5 text-[0.92rem] opacity-75">
               <Ban className="size-4" aria-hidden />
               {mine ? s.deletedByMe : s.deleted}
             </p>
@@ -180,7 +180,7 @@ export const MessageBubble = memo(function MessageBubble({
               {text && <p className={clsx('break-words whitespace-pre-wrap', emojiOnly && 'text-5xl leading-tight')}>{linkify(text)}</p>}
             </>
           ) : (
-            <p className="flex items-center gap-1.5 text-sm italic opacity-70">
+            <p className="flex items-center gap-1.5 text-[0.9rem] leading-snug opacity-75">
               <Lock className="size-4" aria-hidden />
               {message.unreadable === 'not_for_this_device' ? s.notForDevice : s.decryptFailed}
             </p>

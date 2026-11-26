@@ -3,7 +3,7 @@
 # Keeps 14 days. Installed as a cron job by infra/scripts/install-cron.sh.
 #   infra/scripts/backup.sh            databases only
 #   infra/scripts/backup.sh --media    databases and media files
-# Copy /var/backups/talkie off the server too (rclone, S3, another machine) — a backup on the same disk is not enough.
+# Copy /var/backups/talkie off the server too (rclone, S3, another machine), a backup on the same disk is not enough.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

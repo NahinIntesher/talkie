@@ -1,5 +1,5 @@
 // A scripted Talkie user for local testing: signs up (or signs in), starts a chat with `--to <username>`,
-// sends a greeting and answers every message it receives — all end-to-end encrypted like a real device.
+// sends a greeting and answers every message it receives, all end-to-end encrypted like a real device.
 // Needs DEV_FIXED_OTP in .env and the services running (`npm run dev`).
 //   npm run bot -- --to rafiq.ahmed [--name "Nusrat Jahan"] [--email nusrat@example.com]
 import { readFileSync } from 'node:fs';
@@ -95,7 +95,7 @@ socket.on('chat:message', async ({ conversationId: cid, messageId, senderId }) =
     if (file) {
       const response = await fetch(`http://127.0.0.1:4105/media/files/${file.mediaId}`, { headers: { authorization: `Bearer ${token}` } });
       const plain = e2ee.decryptBytes(new Uint8Array(await response.arrayBuffer()), file.key, file.header);
-      fileNote = `${message.kind} “${file.name}” — downloaded and decrypted ${plain.length.toLocaleString()} bytes 🔐`;
+      fileNote = `${message.kind} “${file.name}”, downloaded and decrypted ${plain.length.toLocaleString()} bytes 🔐`;
     }
     if (body.poll) {
       pollNote = `voted for “${body.poll.options[0]}” 🗳️`;
@@ -107,7 +107,7 @@ socket.on('chat:message', async ({ conversationId: cid, messageId, senderId }) =
   await call(`${base.chat}/chat/conversations/${cid}/read`, { messageId });
   socket.emit('typing', { conversationId: cid, active: true });
   await wait(1200 + Math.min(text.length * 30, 2500));
-  const reply = fileNote ? `Got your ${fileNote}` : pollNote ? `I ${pollNote}` : /hello|hi|হ্যালো|salam/i.test(text) ? 'Hello! How are you? 😊' : `You said: “${text}” — got it, decrypted on my side 🔐`;
+  const reply = fileNote ? `Got your ${fileNote}` : pollNote ? `I ${pollNote}` : /hello|hi|হ্যালো|salam/i.test(text) ? 'Hello! How are you? 😊' : `You said: “${text}”, got it, decrypted on my side 🔐`;
   await send(cid, reply, messageId);
   await call(`${base.chat}/chat/messages/${messageId}/reaction`, { emoji: '👍' }, 'PUT');
   console.log(`→ ${reply}`);

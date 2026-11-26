@@ -33,7 +33,6 @@ const copy = {
   en: {
     title: 'Status',
     myStatus: 'My status',
-    addUpdate: 'Tap to add a status update',
     recent: 'Recent updates',
     viewed: 'Viewed updates',
     none: 'No updates from your contacts yet',
@@ -54,7 +53,6 @@ const copy = {
   bn: {
     title: 'স্ট্যাটাস',
     myStatus: 'আমার স্ট্যাটাস',
-    addUpdate: 'স্ট্যাটাস যোগ করতে চাপুন',
     recent: 'সাম্প্রতিক আপডেট',
     viewed: 'দেখা আপডেট',
     none: 'আপনার কন্টাক্টদের কোনো আপডেট এখনো নেই',
@@ -155,7 +153,7 @@ export default function StatusPage() {
             <span className="min-w-0">
               <span className="block font-bold">{t.myStatus}</span>
               <span className="block truncate text-sm text-muted">
-                {posting !== null ? `${t.posting} ${Math.round(posting * 100)}%` : status.mine.length ? lastSeenText(status.mine.at(-1)!.createdAt, locale).replace(/^(last seen|সর্বশেষ দেখা) ?/, '') : t.addUpdate}
+                {posting !== null ? `${t.posting} ${Math.round(posting * 100)}%` : status.mine.length ? lastSeenText(status.mine.at(-1)!.createdAt, locale).replace(/^(last seen|সর্বশেষ দেখা) ?/, '') : null}
               </span>
             </span>
           </button>

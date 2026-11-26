@@ -183,7 +183,7 @@ socket.on('call:incoming', async ({ callId }: { callId: string }) => {
   if (activeCall) return;
   activeCall = callId;
   const { call: info } = await call(`${base.meet}/meet/calls/${callId}`);
-  log(`📞 incoming ${info.media} call — answering in 2 s`);
+  log(`📞 incoming ${info.media} call, answering in 2 s`);
   await new Promise((r) => setTimeout(r, 2000));
   const callKey = await openKey(info);
   const { grant } = await call(`${base.meet}/meet/calls/${callId}/accept`, {});

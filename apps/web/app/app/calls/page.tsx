@@ -68,7 +68,7 @@ export default function CallsPage() {
             return (
               <motion.div key={call.id} layout className="flex items-center gap-3 rounded-2xl px-3 py-2.5 hover:bg-surface-2">
                 {conversation?.group ? (
-                  <span className="inline-flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white">
+                  <span className="inline-flex size-12 items-center justify-center rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white">
                     <Users className="size-5" aria-hidden />
                   </span>
                 ) : (

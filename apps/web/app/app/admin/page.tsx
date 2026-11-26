@@ -29,7 +29,7 @@ export default function AdminOverviewPage() {
     };
   }, []);
 
-  const n = (value: number | undefined | null) => (value === undefined || value === null ? '—' : formatNumber(value, locale));
+  const n = (value: number | undefined | null) => (value === undefined || value === null ? '-' : formatNumber(value, locale));
   const loading = !data && !failed;
 
   return (
@@ -60,13 +60,13 @@ export default function AdminOverviewPage() {
         <StatTile loading={loading} label={s.liveMeetings} value={n(data?.meet?.meetings.live)} icon={<Video className="size-5" />} tone="success" />
         <StatTile loading={loading} label={s.callMinutes} value={n(data?.meet?.minutes.calls)} />
         <StatTile loading={loading} label={s.meetingMinutes} value={n(data?.meet?.minutes.meetings)} />
-        <StatTile loading={loading} label={s.storage} value={data?.media ? formatBytes(data.media.bytes, locale) : '—'} icon={<HardDrive className="size-5" />} tone="muted" />
+        <StatTile loading={loading} label={s.storage} value={data?.media ? formatBytes(data.media.bytes, locale) : '-'} icon={<HardDrive className="size-5" />} tone="muted" />
         <StatTile loading={loading} label={s.files} value={n(data?.media?.files)} />
         <StatTile loading={loading} label={s.liveStatuses} value={n(data?.chat?.liveStatuses)} />
         <StatTile
           loading={loading}
           label={s.devices}
-          value={data?.accounts ? n(Object.values(data.accounts.devices).reduce((a, b) => a + b, 0)) : '—'}
+          value={data?.accounts ? n(Object.values(data.accounts.devices).reduce((a, b) => a + b, 0)) : '-'}
         />
       </div>
     </motion.div>

@@ -154,8 +154,8 @@ export function DocumentAttachment({ attachment, uploading, mine }: { attachment
     link.click();
   };
   return (
-    <button onClick={save} className={clsx('-mx-1 mb-1 flex w-72 max-w-full items-center gap-3 rounded-xl p-2.5 text-left', mine ? 'bg-black/12' : 'bg-surface-2')}>
-      <span className={clsx('relative inline-flex size-11 shrink-0 items-center justify-center rounded-xl', mine ? 'bg-white/20' : 'bg-brand-soft text-brand')}>
+    <button onClick={save} className={clsx('-mx-1 mb-1 flex w-72 max-w-full items-center gap-3 rounded-xl p-2.5 text-left', mine ? 'bg-[var(--bubble-ink-12)]' : 'bg-surface-2')}>
+      <span className={clsx('relative inline-flex size-11 shrink-0 items-center justify-center rounded-xl', mine ? 'bg-[var(--bubble-ink-20)]' : 'bg-brand-soft text-brand')}>
         <Icon className="size-6" aria-hidden />
       </span>
       <span className="min-w-0 flex-1">
@@ -242,7 +242,7 @@ export function VoiceAttachment({ attachment, uploading, mine, senderId }: { att
         <Avatar name={nameOf(state, senderId)} src={state.profiles[senderId]?.avatarUrl} size={44} />
         <span className={clsx('absolute -right-1 -bottom-1 inline-flex size-5 items-center justify-center rounded-full text-[0.6rem]', mine ? 'bg-[var(--bubble-out-text)] text-[var(--bubble-out)]' : 'bg-brand text-[var(--surface)]')}>🎤</span>
       </span>
-      <button onClick={toggle} aria-label={playing ? 'Pause' : 'Play'} className={clsx('inline-flex size-10 shrink-0 items-center justify-center rounded-full', mine ? 'bg-white/20' : 'bg-brand-soft text-brand')}>
+      <button onClick={toggle} aria-label={playing ? 'Pause' : 'Play'} className={clsx('inline-flex size-10 shrink-0 items-center justify-center rounded-full', mine ? 'bg-[var(--bubble-ink-20)]' : 'bg-brand-soft text-brand')}>
         {uploading !== null || progress !== null ? <Loader2 className="size-5 animate-spin" /> : failed ? <RotateCw className="size-5" /> : playing ? <Pause className="size-5 fill-current" /> : <Play className="ml-0.5 size-5 fill-current" />}
       </button>
       <div className="min-w-0 flex-1">
@@ -266,7 +266,7 @@ export function VoiceAttachment({ attachment, uploading, mine, senderId }: { att
           {bars.map((bar, index) => (
             <span
               key={index}
-              className={clsx('w-[3px] flex-1 rounded-full transition-colors', index / bars.length < done ? (mine ? 'bg-white' : 'bg-brand') : mine ? 'bg-white/40' : 'bg-subtle/40')}
+              className={clsx('w-[3px] flex-1 rounded-full transition-colors', index / bars.length < done ? (mine ? 'bg-[var(--bubble-out-text)]' : 'bg-brand') : mine ? 'bg-[var(--bubble-ink-40)]' : 'bg-subtle/40')}
               style={{ height: `${Math.max(12, bar)}%` }}
             />
           ))}
@@ -274,7 +274,7 @@ export function VoiceAttachment({ attachment, uploading, mine, senderId }: { att
         <div className="flex items-center justify-between text-[0.7rem] opacity-80">
           <span className="tabular-nums">{formatDuration(playing || position ? position : duration)}</span>
           {url && (
-            <button onClick={() => setSpeed((speed + 1) % SPEEDS.length)} aria-label={s.speed} className={clsx('rounded-full px-1.5 font-bold', mine ? 'bg-white/20' : 'bg-surface-3')}>
+            <button onClick={() => setSpeed((speed + 1) % SPEEDS.length)} aria-label={s.speed} className={clsx('rounded-full px-1.5 font-bold', mine ? 'bg-[var(--bubble-ink-20)]' : 'bg-surface-3')}>
               {SPEEDS[speed]}×
             </button>
           )}
@@ -316,14 +316,14 @@ export function PollView({ poll, conversationId, messageId, votes, mine }: { pol
                 <span className="flex-1 text-sm font-medium">{option}</span>
                 <span className="text-sm font-semibold tabular-nums opacity-80">{count}</span>
               </span>
-              <span className={clsx('mt-1.5 ml-7.5 block h-1.5 overflow-hidden rounded-full', mine ? 'bg-white/25' : 'bg-surface-3')}>
-                <motion.span className={clsx('block h-full rounded-full', mine ? 'bg-white' : 'bg-brand')} initial={false} animate={{ width: `${(count / max) * 100}%` }} />
+              <span className={clsx('mt-1.5 ml-7.5 block h-1.5 overflow-hidden rounded-full', mine ? 'bg-[var(--bubble-ink-25)]' : 'bg-surface-3')}>
+                <motion.span className={clsx('block h-full rounded-full', mine ? 'bg-[var(--bubble-out-text)]' : 'bg-brand')} initial={false} animate={{ width: `${(count / max) * 100}%` }} />
               </span>
             </button>
           );
         })}
       </div>
-      <button onClick={() => setShowVotes(true)} className={clsx('mt-3 w-full border-t pt-2 text-center text-sm font-semibold', mine ? 'border-white/25' : 'border-border text-brand')}>
+      <button onClick={() => setShowVotes(true)} className={clsx('mt-3 w-full border-t pt-2 text-center text-sm font-semibold', mine ? 'border-[var(--bubble-ink-25)]' : 'border-border text-brand')}>
         {total ? s.viewVotes : fill(s.votes, { n: 0 })}
       </button>
       <Dialog open={showVotes} onClose={() => setShowVotes(false)} title={poll.question}>

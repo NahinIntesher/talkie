@@ -84,4 +84,4 @@ export interface AuditEntry {
 }
 
 export const nameOf = (card: { displayName?: string | null; username?: string | null; id: string } | null | undefined) =>
-  card?.displayName || (card?.username ? `@${card.username}` : card?.id ?? '—');
+  card?.displayName || (card?.username ? `@${card.username}` : card?.id ?? '-');

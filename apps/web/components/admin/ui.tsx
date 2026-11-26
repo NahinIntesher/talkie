@@ -52,7 +52,7 @@ export function DailyBars({ title, series }: { title: string; series: Series[] |
     <div className="rounded-3xl border border-border bg-surface p-5 shadow-card">
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="font-bold">{title}</h3>
-        <span className="text-lg font-extrabold tabular-nums">{series ? formatNumber(total, locale) : '—'}</span>
+        <span className="text-lg font-extrabold tabular-nums">{series ? formatNumber(total, locale) : '-'}</span>
       </div>
       {!series ? (
         <div className="mt-4 flex h-40 items-center justify-center rounded-2xl bg-surface-2 text-sm text-muted">{s.unavailable}</div>

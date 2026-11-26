@@ -78,6 +78,15 @@ export function createFcm(account: ServiceAccount, log: Logger) {
 
   return {
     projectId: account.project_id,
+    /** Install check: does Google accept the service-account key? */
+    async check(): Promise<string> {
+      try {
+        await accessToken();
+        return 'ok';
+      } catch (error) {
+        return `rejected: ${String((error as Error)?.message ?? error).slice(0, 120)}`;
+      }
+    },
     async send(deviceToken: string, message: PushMessage): Promise<SendResult> {
       const payload = {
         message: {

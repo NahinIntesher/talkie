@@ -220,7 +220,7 @@ export const formatNumber = (value: number, locale: Locale) => new Intl.NumberFo
 export const formatDate = (iso: string | null, locale: Locale, withTime = false) =>
   iso
     ? new Intl.DateTimeFormat(tag(locale), { day: 'numeric', month: 'short', year: 'numeric', ...(withTime ? { hour: 'numeric', minute: '2-digit' } : {}) }).format(new Date(iso))
-    : '—';
+    : '-';
 
 export function formatBytes(bytes: number, locale: Locale): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
