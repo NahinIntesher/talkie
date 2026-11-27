@@ -122,8 +122,8 @@ class Push {
         await _storage.write(key: _permissionAsked, value: '1');
       }
       if (session != _session || settings.authorizationStatus != AuthorizationStatus.authorized) return;
-      // onRegistered gives the device token now and again whenever Firebase rotates it.
-      _refresh = fcm.onRegistered.listen((token) => _send(token));
+      // Android sends a Firebase Installation ID here. FCM HTTP v1 also accepts it in the token field.
+      _refresh = fcm.onRegistered.listen((installationId) => _send(installationId));
       await fcm.register();
       if (session != _session) return;
       _foreground = FirebaseMessaging.onMessage.listen((message) => _showMessage(message, openChat()));
