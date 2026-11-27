@@ -26,18 +26,28 @@ class _ThreadScreenState extends State<ThreadScreen> {
   ChatMessage? replyTo;
   ChatMessage? editing;
   bool loadingOlder = false;
+  bool loadFailed = false;
   late final Chat chat = context.read<Chat>();
 
   @override
   void initState() {
     super.initState();
-    chat.open(widget.conversationId);
+    _open();
     scroll.addListener(() {
       if (scroll.position.pixels > scroll.position.maxScrollExtent - 600 && !loadingOlder) {
         loadingOlder = true;
-        chat.loadOlder(widget.conversationId).whenComplete(() => loadingOlder = false);
+        chat.loadOlder(widget.conversationId).catchError((_) {}).whenComplete(() => loadingOlder = false);
       }
     });
+  }
+
+  Future<void> _open() async {
+    if (loadFailed) setState(() => loadFailed = false);
+    try {
+      await chat.open(widget.conversationId);
+    } catch (_) {
+      if (mounted) setState(() => loadFailed = true);
+    }
   }
 
   @override
@@ -106,7 +116,9 @@ class _ThreadScreenState extends State<ThreadScreen> {
       ),
       body: Column(children: [
         Expanded(
-          child: thread?.loaded != true
+          child: loadFailed
+              ? Center(child: TextButton(onPressed: _open, child: Text(t('চ্যাট লোড হয়নি। আবার চেষ্টা করুন', 'Could not load this chat. Try again'))))
+              : c == null || thread?.loaded != true
               ? const Center(child: CircularProgressIndicator())
               : ListView.builder(
                   controller: scroll,
@@ -130,7 +142,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
                         MessageBubble(
                           key: ValueKey(m.id),
                           message: m,
-                          conversation: c!,
+                          conversation: c,
                           firstOfRun: firstOfRun,
                           lastOfRun: lastOfRun,
                           onReply: () => setState(() {

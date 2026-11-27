@@ -78,9 +78,14 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
     onSignedOut?.();
   }
   const text = await response.text();
-  const data = text ? (JSON.parse(text) as unknown) : {};
+  let data: unknown;
+  try {
+    data = text ? (JSON.parse(text) as unknown) : {};
+  } catch {
+    throw new ApiError(response.status, 'invalid_response', 'Talkie could not read the server response. Try again.');
+  }
   if (!response.ok) {
-    const error = (data as ErrorBody).error ?? { code: 'internal', message: 'error' };
+    const error = (data as ErrorBody | null)?.error ?? { code: 'internal', message: 'error' };
     throw new ApiError(response.status, error.code, error.message, error.details);
   }
   return data as T;

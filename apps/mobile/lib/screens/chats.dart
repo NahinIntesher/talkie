@@ -132,6 +132,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
             ),
           if (!chat.ready)
             const SliverFillRemaining(hasScrollBody: false, child: Center(child: CircularProgressIndicator()))
+          else if (chat.loadFailed && chat.conversations.isEmpty)
+            SliverFillRemaining(hasScrollBody: false, child: Center(child: TextButton(onPressed: chat.loadConversations, child: Text(t('চ্যাট লোড হয়নি। আবার চেষ্টা করুন', 'Chats could not load. Try again')))))
           else if (list.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,

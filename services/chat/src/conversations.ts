@@ -149,8 +149,9 @@ export function registerConversationRoutes(app: FastifyInstance, ctx: Context) {
   app.get('/chat/conversations/:id/devices', auth, async (request) => {
     const me = caller(request);
     const { id } = z.object({ id: contract.id }).parse(request.params);
+    const { fresh } = z.object({ fresh: z.literal('1').optional() }).parse(request.query);
     await membership(db, id, me.userId);
-    return { devices: await ctx.devices.forUsers(await activeMemberIds(db, id)) };
+    return { devices: await ctx.devices.forUsers(await activeMemberIds(db, id), fresh === '1') };
   });
 
   // ───────── Direct chats ─────────

@@ -9,6 +9,7 @@ import '../chat/chat.dart';
 import '../chat/models.dart';
 import '../core/api.dart';
 import '../core/crypto.dart';
+import '../core/realtime.dart';
 
 enum CallPhase { outgoing, connecting, active, reconnecting, ended }
 
@@ -19,10 +20,11 @@ class Calls extends ChangeNotifier {
     chat.on('call:incoming', (d) => _incoming(d['callId'] as String));
     chat.on('call:update', (d) => _update(d['callId'] as String));
     chat.on('call:ended', (d) => _ended(d['callId'] as String, d['outcome'] as String? ?? 'ended'));
-    api.get('/meet/calls/incoming').then((r) {
-      final calls = (r['calls'] as List).cast<Json>();
-      if (calls.isNotEmpty && phase == null) _ring(calls.first);
-    }).catchError((_) {});
+    unawaited(checkIncoming());
+    _incomingPoll = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (chat.appVisible && realtime.state.value != Connection.connected) unawaited(checkIncoming());
+    });
+    realtime.state.addListener(_connectionChanged);
   }
 
   final Chat chat;
@@ -38,7 +40,10 @@ class Calls extends ChangeNotifier {
   String? endReason;
   DateTime? startedAt;
   Timer? _buzz;
-  bool? _enabled;
+  Timer? _incomingPoll;
+  bool _starting = false;
+  bool _answering = false;
+  bool _checkingIncoming = false;
   bool _disposed = false;
 
   void _changed() {
@@ -49,17 +54,32 @@ class Calls extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _stopRing();
+    _incomingPoll?.cancel();
+    realtime.state.removeListener(_connectionChanged);
     room?.disconnect();
     super.dispose();
   }
 
-  Future<bool> enabled() async {
-    if (_enabled != null) return _enabled!;
+  void _connectionChanged() {
+    if (realtime.state.value == Connection.connected) unawaited(checkIncoming());
+  }
+
+  Future<void> checkIncoming() async {
+    if (_disposed || _checkingIncoming || _starting || _answering || phase != null) return;
+    _checkingIncoming = true;
     try {
-      final r = await api.get('/meet/config');
-      return _enabled = r['enabled'] == true;
+      final r = await api.get('/meet/calls/incoming');
+      if (_disposed || phase != null || _starting || _answering) return;
+      final calls = (r['calls'] as List).cast<Json>();
+      if (calls.isNotEmpty && incoming?['id'] != calls.first['id']) _ring(calls.first);
+      if (calls.isEmpty && incoming != null) {
+        incoming = null;
+        _stopRing();
+        _changed();
+      }
     } catch (_) {
-      return false;
+    } finally {
+      _checkingIncoming = false;
     }
   }
 
@@ -126,7 +146,14 @@ class Calls extends ChangeNotifier {
         if (phase != null && phase != CallPhase.ended) hangUp('disconnected');
       })
       ..on<RoomEvent>((_) => _changed());
-    await r.connect(grant['url'] as String, grant['token'] as String);
+    try {
+      await r.connect(grant['url'] as String, grant['token'] as String);
+    } catch (_) {
+      _listener?.dispose();
+      _listener = null;
+      await r.dispose();
+      rethrow;
+    }
     // The call is live once connected; the microphone and camera start alongside.
     unawaited(() async {
       try {
@@ -168,20 +195,27 @@ class Calls extends ChangeNotifier {
   // ───────── Outgoing ─────────
 
   Future<String?> start(String conversationId, bool video) async {
-    if (phase != null) return 'You are already on a call.';
-    if (!await enabled()) return 'Calls are not set up on this server yet.';
-    if (!await _permissions(video)) return 'Allow the microphone to call.';
+    if (phase != null || _starting || _answering) return 'You are already on a call.';
     final keys = chat.session.keys;
     if (keys == null) return 'Your encryption keys are not ready yet.';
+    _starting = true;
     try {
+      if (!await _permissions(video)) return 'Allow the microphone to call.';
       final callKey = Crypto.instance.newCallKey();
+      Future<dynamic> startWith(List<Recipient> devices) => api.post('/meet/calls', {
+          'conversationId': conversationId,
+          'media': video ? 'video' : 'audio',
+          'keys': Crypto.instance.sealSecret(callKey, keys, [...devices, Recipient(deviceId: chat.session.deviceId!, identityKey: keys.publicKey)]).map((k) => k.toJson()).toList(),
+        });
+      dynamic result;
       final devices = await chat.devicesOf(conversationId);
-      final recipients = [...devices, Recipient(deviceId: chat.session.deviceId!, identityKey: keys.publicKey)];
-      final result = await api.post('/meet/calls', {
-        'conversationId': conversationId,
-        'media': video ? 'video' : 'audio',
-        'keys': Crypto.instance.sealSecret(callKey, keys, recipients).map((k) => k.toJson()).toList(),
-      });
+      try {
+        result = await startWith(devices);
+      } on ApiError catch (error) {
+        final updated = error.details?['devices'];
+        if (error.code != 'devices_changed' || updated is! List) rethrow;
+        result = await startWith(updated.cast<Json>().map(Recipient.fromJson).toList());
+      }
       final call = result['call'] as Json;
       final grant = result['grant'] as Json?;
       chat.loadProfiles(((call['participants'] as List).cast<Json>()).map((p) => p['userId'] as String));
@@ -198,7 +232,8 @@ class Calls extends ChangeNotifier {
         return null;
       }
       final joinedExisting = call['state'] == 'active';
-      room = await _connect(grant, joinedExisting ? await _keyFor(call) : callKey, video);
+      final connected = await _connect(grant, joinedExisting ? await _keyFor(call) : callKey, video);
+      if (!await _keepConnected(connected, call['id'] as String)) return null;
       if (joinedExisting) {
         phase = CallPhase.active;
         startedAt = DateTime.now();
@@ -211,18 +246,23 @@ class Calls extends ChangeNotifier {
       info = null;
       phase = null;
       _changed();
-      if (joined != null) _abandon(joined);
+      if (joined != null) unawaited(_abandon(joined));
       return _friendly(error);
+    } finally {
+      _starting = false;
     }
   }
 
   // ───────── Incoming ─────────
 
   Future<void> _incoming(String callId) async {
-    if (phase != null) return;
+    if (phase != null || _starting || _answering || incoming?['id'] == callId) return;
     try {
       final r = await api.get('/meet/calls/$callId');
-      _ring(r['call'] as Json);
+      final call = r['call'] as Json;
+      final participants = (call['participants'] as List).cast<Json>();
+      final ringing = participants.any((p) => p['userId'] == chat.me && p['state'] == 'ringing');
+      if (!_disposed && phase == null && !_starting && !_answering && ringing && incoming?['id'] != callId) _ring(call);
     } catch (_) {}
   }
 
@@ -235,15 +275,16 @@ class Calls extends ChangeNotifier {
 
   Future<String?> accept(bool video) async {
     final call = incoming;
-    if (call == null) return null;
+    if (call == null || _answering || _starting || phase != null) return null;
+    _answering = true;
     _stopRing();
     incoming = null;
     _changed();
-    if (!await _permissions(video)) {
-      decline(call);
-      return 'Allow the microphone to answer.';
-    }
     try {
+      if (!await _permissions(video)) {
+        await decline(call);
+        return 'Allow the microphone to answer.';
+      }
       final callKey = await _keyFor(call);
       final result = await api.post('/meet/calls/${call['id']}/accept');
       info = result['call'] as Json;
@@ -253,7 +294,8 @@ class Calls extends ChangeNotifier {
       phase = CallPhase.connecting;
       endReason = null;
       _changed();
-      room = await _connect(result['grant'] as Json, callKey, video);
+      final connected = await _connect(result['grant'] as Json, callKey, video);
+      if (!await _keepConnected(connected, call['id'] as String)) return null;
       phase = CallPhase.active;
       startedAt = DateTime.now();
       _changed();
@@ -265,7 +307,18 @@ class Calls extends ChangeNotifier {
       _changed();
       if (joined != null) _abandon(joined);
       return _friendly(error);
+    } finally {
+      _answering = false;
     }
+  }
+
+  Future<bool> _keepConnected(Room connected, String callId) async {
+    if (_disposed || info?['id'] != callId || phase == null || phase == CallPhase.ended) {
+      await connected.dispose();
+      return false;
+    }
+    room = connected;
+    return true;
   }
 
   Future<void> decline([Json? call]) async {

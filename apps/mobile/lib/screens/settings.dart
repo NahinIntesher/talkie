@@ -86,7 +86,13 @@ class SettingsScreen extends StatelessWidget {
                   ],
                 ),
               );
-              if (ok == true) await session.signOut();
+              if (ok == true) {
+                try {
+                  await session.signOut();
+                } catch (_) {
+                  if (context.mounted) showMessage(context, t('সাইন আউট করতে আবার সংযোগ করুন।', 'Reconnect to finish signing out.'), error: true);
+                }
+              }
             },
           ),
         ]),
@@ -340,7 +346,18 @@ class DevicesScreen extends StatefulWidget {
 
 class _DevicesScreenState extends State<DevicesScreen> {
   List<Json>? devices;
+  List<Json> historyRequests = [];
+  bool historyPending = false;
   bool transferring = false;
+
+  Future<void> _requestHistory() async {
+    try {
+      await api.post('/chat/history/requests');
+      if (mounted) setState(() => historyPending = true);
+    } catch (error) {
+      if (mounted) showMessage(context, '$error', error: true);
+    }
+  }
 
   Future<void> _transfer() async {
     final t = context.read<Prefs>().t;
@@ -363,6 +380,11 @@ class _DevicesScreenState extends State<DevicesScreen> {
       ),
     );
     if (!mounted || confirmed != true || code.trim().isEmpty) return;
+    await _sendHistory(chat, code);
+  }
+
+  Future<void> _sendHistory(Chat chat, String code) async {
+    final t = context.read<Prefs>().t;
     setState(() => transferring = true);
     try {
       final result = await transferHistory(chat, code);
@@ -371,6 +393,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
       final added = digits('${result.added}', prefs);
       final unreadable = digits('${result.unreadable}', prefs);
       showMessage(context, t('$addedটি বার্তার চাবি পাঠানো হয়েছে। $unreadableটি খোলা যায়নি।', 'Transferred $added message keys. $unreadable could not be opened.'));
+      await _loadHistoryRequests();
     } catch (_) {
       if (mounted) showMessage(context, t('পাঠানো যায়নি। অন্য ডিভাইসের কোড যাচাই করে আবার চেষ্টা করুন।', 'Transfer failed. Check the code from your other device and try again.'), error: true);
     } finally {
@@ -389,6 +412,65 @@ class _DevicesScreenState extends State<DevicesScreen> {
       final r = await api.get('/auth/devices');
       if (mounted) setState(() => devices = (r['devices'] as List).cast<Json>());
     } catch (_) {}
+    await _loadHistoryRequests();
+  }
+
+  Future<void> _loadHistoryRequests() async {
+    try {
+      final result = await api.get('/chat/history/requests');
+      if (mounted) {
+        setState(() {
+          historyRequests = (result['incoming'] as List).cast<Json>();
+          historyPending = result['pending'] == true;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _approveHistory(Json request, String deviceName) async {
+    final t = context.read<Prefs>().t;
+    final chat = context.read<Chat>();
+    var code = '';
+    final approved = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(
+      title: Text(t('চ্যাট ইতিহাস পাঠাবেন?', 'Share encrypted history?')),
+      content: TextField(
+        onChanged: (value) => code = value,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(labelText: t('নতুন ডিভাইসের কোড', 'New device’s code'), helperText: deviceName),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialog, false), child: Text(t('বাতিল', 'Cancel'))),
+        FilledButton(onPressed: () => Navigator.pop(dialog, true), child: Text(t('অনুমোদন দিন', 'Approve'))),
+      ],
+    ));
+    if (!mounted || approved != true) return;
+    if (code.replaceAll(RegExp(r'\s'), '') != historyApprovalCode(request['identityKey'] as String)) {
+      showMessage(context, t('যাচাই কোড মিলছে না।', 'The verification code does not match.'), error: true);
+      return;
+    }
+    await _sendHistory(chat, '${request['deviceId']}.${request['identityKey']}');
+  }
+
+  Future<void> _signOutDevice(Json device) async {
+    final t = context.read<Prefs>().t;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(t('ডিভাইস থেকে সাইন আউট করবেন?', 'Sign out this device?')),
+        content: Text(device['name'] as String),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog), child: Text(t('বাতিল', 'Cancel'))),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: Text(t('সাইন আউট', 'Sign out'))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await api.delete('/auth/devices/${device['id']}');
+      await load();
+    } catch (error) {
+      if (mounted) showMessage(context, '$error', error: true);
+    }
   }
 
   @override
@@ -396,11 +478,15 @@ class _DevicesScreenState extends State<DevicesScreen> {
     final prefs = context.watch<Prefs>();
     final t = prefs.t;
     final p = context.palette;
+    final ownKey = context.watch<Session>().keys?.publicKey;
     return Scaffold(
-      appBar: AppBar(title: Text(t('ডিভাইস', 'Devices'))),
+      appBar: AppBar(title: Text(t('ডিভাইস', 'Devices')), actions: [
+        IconButton(tooltip: t('রিফ্রেশ করুন', 'Refresh'), onPressed: load, icon: const Icon(LucideIcons.refreshCw)),
+      ]),
       body: devices == null
           ? const Center(child: CircularProgressIndicator())
           : ListView(children: [
+              Padding(padding: const EdgeInsets.all(16), child: Text(t('একসঙ্গে সর্বোচ্চ তিনটি ডিভাইস সক্রিয় থাকবে।', 'Up to three devices can stay signed in.'))),
               for (final d in devices!)
                 ListTile(
                   leading: CircleAvatar(
@@ -408,19 +494,18 @@ class _DevicesScreenState extends State<DevicesScreen> {
                     child: Icon(d['platform'] == 'web' ? LucideIcons.monitor : LucideIcons.smartphone, color: p.brand, size: 20),
                   ),
                   title: Text(d['name'] as String? ?? '', style: const TextStyle(fontWeight: FontWeight.w700)),
-                  subtitle: Text(d['current'] == true ? t('এই ডিভাইস', 'This device') : listTime(DateTime.parse(d['lastActiveAt'] as String).toLocal(), prefs), style: TextStyle(color: d['current'] == true ? p.success : p.subtle, fontWeight: FontWeight.w600)),
+                  subtitle: Text([
+                    if (d['current'] == true) t('এই ডিভাইস', 'This device'),
+                    switch (d['platform']) { 'android' => 'Android', 'ios' => 'iOS', 'web' => 'Web', _ => 'Desktop' },
+                    '${t('সংযুক্ত', 'Linked')} ${listTime(DateTime.parse(d['createdAt'] as String).toLocal(), prefs)}',
+                    '${t('সর্বশেষ সক্রিয়', 'Last active')} ${listTime(DateTime.parse(d['lastActiveAt'] as String).toLocal(), prefs)}',
+                  ].join(' · '), style: TextStyle(color: d['current'] == true ? p.success : p.subtle, fontWeight: FontWeight.w600)),
                   trailing: d['current'] == true
                       ? null
                       : IconButton(
                           icon: Icon(LucideIcons.logOut, color: p.danger),
-                          onPressed: () async {
-                            try {
-                              await api.delete('/auth/devices/${d['id']}');
-                              await load();
-                            } catch (err) {
-                              if (context.mounted) showMessage(context, '$err', error: true);
-                            }
-                          },
+                          tooltip: t('এই ডিভাইস থেকে সাইন আউট', 'Sign out this device'),
+                          onPressed: () => _signOutDevice(d),
                         ),
                 ),
               if (transferring) const LinearProgressIndicator(),
@@ -428,6 +513,22 @@ class _DevicesScreenState extends State<DevicesScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 24, 20, 4),
                 child: Text(t('এনক্রিপ্ট করা চ্যাট ইতিহাস', 'Encrypted chat history'), style: Theme.of(context).textTheme.titleMedium),
               ),
+              ListTile(
+                leading: const Icon(LucideIcons.history),
+                title: Text(t('পুরোনো চ্যাট ফিরিয়ে আনুন', 'Restore chat history')),
+                subtitle: Text(historyPending ? t('চেনা পুরোনো ডিভাইসে এই অনুরোধ অনুমোদন দিন।', 'Approve this request on a trusted older device.') : t('পুরোনো ডিভাইসে অনুমোদনের অনুরোধ পাঠান।', 'Request approval from an older device.')),
+                onTap: transferring || historyPending ? null : _requestHistory,
+              ),
+              if (historyPending && ownKey != null)
+                Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: SelectableText('${t('এই ডিভাইসের যাচাই কোড', 'This device’s verification code')} ${historyApprovalCode(ownKey)}')),
+              for (final request in historyRequests)
+                if (devices!.where((d) => d['id'] == request['deviceId']).firstOrNull case final device?)
+                  ListTile(
+                    leading: const Icon(LucideIcons.shieldCheck),
+                    title: Text(t('চ্যাট ইতিহাসের অনুরোধ', 'History restore request')),
+                    subtitle: Text(device['name'] as String),
+                    onTap: transferring ? null : () => _approveHistory(request, device['name'] as String),
+                  ),
               ListTile(
                 leading: const Icon(LucideIcons.copy),
                 title: Text(t('এই ডিভাইসের কোড কপি করুন', 'Copy this device’s code')),

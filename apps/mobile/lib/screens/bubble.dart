@@ -10,6 +10,7 @@ import '../ui/format.dart';
 import '../ui/theme.dart';
 import 'attachments.dart';
 import 'chats.dart';
+import 'settings.dart';
 
 class MessageBubble extends StatefulWidget {
   const MessageBubble({super.key, required this.message, required this.conversation, required this.firstOfRun, required this.lastOfRun, required this.onReply, required this.onLongPress});
@@ -34,6 +35,7 @@ class _MessageBubbleState extends State<MessageBubble> {
     final m = widget.message;
     final t = prefs.t;
     final mine = m.senderId == chat.me;
+    if (!m.deleted && m.kind == 'call') return _CallHistoryCard(message: m, mine: mine, onLongPress: widget.onLongPress);
     final media = m.kind == 'image' || m.kind == 'video';
     final fg = mine ? p.bubbleOutText : p.text;
     final meta = mine ? p.bubbleOutText.withValues(alpha: 0.75) : p.subtle;
@@ -58,14 +60,10 @@ class _MessageBubbleState extends State<MessageBubble> {
         Icon(LucideIcons.lock, size: 15, color: meta),
         const SizedBox(width: 6),
         Flexible(child: Text(
-          m.unreadable == 'not_for_this_device'
-              ? t('এই ডিভাইস লিংক করার আগে মেসেজটি পাঠানো হয়েছিল।', 'Sent before this device was linked.')
-              : t('বার্তাটি খোলা যায়নি', 'Message unavailable'),
+          t('বার্তাটি খোলা যায়নি', 'Message unavailable'),
           style: TextStyle(color: meta, fontStyle: FontStyle.italic),
         )),
       ]);
-    } else if (m.kind == 'call') {
-      content = Row(mainAxisSize: MainAxisSize.min, children: [Icon(LucideIcons.phone, size: 16, color: fg), const SizedBox(width: 8), Text(t('কল', 'Call'), style: TextStyle(color: fg, fontWeight: FontWeight.w700))]);
     } else {
       content = Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
         for (final a in m.attachments) Padding(padding: EdgeInsets.only(bottom: (m.text ?? '').isNotEmpty ? 6 : 0), child: AttachmentView(message: m, attachment: a, mine: mine)),
@@ -103,6 +101,11 @@ class _MessageBubbleState extends State<MessageBubble> {
           ),
         ?reply,
         content,
+        if (m.unreadable == 'not_for_this_device')
+          TextButton(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DevicesScreen())),
+            child: Text(t('চ্যাট ইতিহাস ফিরিয়ে আনুন', 'Restore chat history')),
+          ),
         if (progress != null) Padding(padding: const EdgeInsets.only(top: 6), child: LinearProgressIndicator(value: progress, minHeight: 3, borderRadius: BorderRadius.circular(9), color: p.bubbleOutText, backgroundColor: p.bubbleOutText.withValues(alpha: 0.16))),
         Padding(padding: EdgeInsets.only(top: 2, right: media ? 6 : 0), child: Align(alignment: Alignment.centerRight, widthFactor: 1, child: time)),
       ]),
@@ -145,6 +148,52 @@ class _MessageBubbleState extends State<MessageBubble> {
             ),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+class _CallHistoryCard extends StatelessWidget {
+  const _CallHistoryCard({required this.message, required this.mine, required this.onLongPress});
+
+  final ChatMessage message;
+  final bool mine;
+  final VoidCallback onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final prefs = context.watch<Prefs>();
+    final t = prefs.t;
+    final call = message.systemEvent?['call'] as Json?;
+    final video = call?['media'] == 'video';
+    final outcome = call?['outcome'];
+    final missed = const {'missed', 'busy', 'cancelled', 'declined'}.contains(outcome);
+    final seconds = (call?['durationSeconds'] as num?)?.toInt() ?? 0;
+    final length = digits('${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}', prefs);
+    final status = missed
+        ? (mine ? t('ধরা হয়নি', 'No answer') : t('মিসড কল', 'Missed call'))
+        : (mine ? t('আউটগোয়িং', 'Outgoing') : t('ইনকামিং', 'Incoming'));
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Align(
+        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+        child: GestureDetector(
+          onLongPress: onLongPress,
+          child: Container(
+            constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.78),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(color: p.surface, border: Border.all(color: p.border), borderRadius: BorderRadius.circular(16)),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              CircleAvatar(backgroundColor: missed ? p.danger.withValues(alpha: 0.12) : p.brandSoft, child: Icon(video ? LucideIcons.video : LucideIcons.phone, size: 18, color: missed ? p.danger : p.brand)),
+              const SizedBox(width: 10),
+              Flexible(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(video ? t('ভিডিও কল', 'Video call') : t('অডিও কল', 'Voice call'), style: const TextStyle(fontWeight: FontWeight.w800)),
+                Text('$status${seconds > 0 ? ' · $length' : ''} · ${clock(message.time, prefs)}', style: TextStyle(fontSize: 12, color: p.muted)),
+              ])),
+            ]),
+          ),
+        ),
       ),
     );
   }

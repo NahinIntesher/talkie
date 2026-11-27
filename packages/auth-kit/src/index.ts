@@ -38,10 +38,24 @@ export interface TokenVerifier {
   verify(token: string): Promise<AuthContext>;
 }
 
-export async function createVerifier(env: BaseEnv, publicKeyPem = readPublicKey(env)): Promise<TokenVerifier> {
+type SessionCheck = (auth: AuthContext) => Promise<boolean>;
+
+const remoteSessionCheck = (env: BaseEnv): SessionCheck => async (auth) => {
+  try {
+    const result = await internalFetch<{ active: boolean }>(env, `${env.AUTH_URL}/internal/sessions/check`, {
+      method: 'POST', body: { userId: auth.userId, deviceId: auth.deviceId, sessionId: auth.sessionId },
+    });
+    return result.active === true;
+  } catch {
+    throw new AppError('unavailable', 'Could not check your session. Try again.');
+  }
+};
+
+export async function createVerifier(env: BaseEnv, publicKeyPem = readPublicKey(env), check: SessionCheck = remoteSessionCheck(env)): Promise<TokenVerifier> {
   const key: CryptoKey = await importSPKI(publicKeyPem, ACCESS_TOKEN_ALG);
   return {
     async verify(token) {
+      let auth: AuthContext;
       try {
         const { payload } = await jwtVerify<AccessClaims>(token, key, {
           algorithms: [ACCESS_TOKEN_ALG],
@@ -50,10 +64,12 @@ export async function createVerifier(env: BaseEnv, publicKeyPem = readPublicKey(
           clockTolerance: 5,
         });
         if (!payload.sub || !payload.did || !payload.sid) throw new Error('incomplete token');
-        return { userId: payload.sub, deviceId: payload.did, sessionId: payload.sid, role: payload.role ?? 'user' };
+        auth = { userId: payload.sub, deviceId: payload.did, sessionId: payload.sid, role: payload.role ?? 'user' };
       } catch {
         throw new AppError('unauthorized', 'Your session has expired. Please sign in again.');
       }
+      if (!await check(auth)) throw new AppError('session_revoked', 'This device has been signed out.');
+      return auth;
     },
   };
 }
@@ -68,9 +84,10 @@ const bearer = (request: FastifyRequest): string | null => {
  * Adds `request.auth` when a valid bearer token is present, and the `requireAuth` / `requireRole` / `requireInternal`
  * pre-handlers that routes opt into.
  */
-export function installAuth(app: FastifyInstance, verifier: TokenVerifier, env: BaseEnv) {
+export function installAuth(app: FastifyInstance, verifier: TokenVerifier, env: BaseEnv, publicRoutes: ReadonlySet<string> = new Set()) {
   app.decorateRequest('auth', undefined);
   app.addHook('onRequest', async (request) => {
+    if (publicRoutes.has(request.url.split('?')[0]!)) return;
     const token = bearer(request);
     if (token) request.auth = await verifier.verify(token);
   });

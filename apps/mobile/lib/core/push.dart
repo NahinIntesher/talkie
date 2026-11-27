@@ -124,7 +124,7 @@ class Push {
   Future<void> _send(String token) => api.put('/notify/push-token', {'provider': 'fcm', 'token': token}).then((_) {}, onError: (_) {});
 
   /// Before sign-out: this device should get nothing for this account any more.
-  Future<void> unregister() async {
+  Future<void> unregister({bool server = true}) async {
     if (!_ready) return;
     _session++;
     await _refresh?.cancel();
@@ -134,9 +134,11 @@ class Push {
     try {
       await _notifications.cancelAll();
     } catch (_) {}
-    try {
-      await api.delete('/notify/push-token');
-    } catch (_) {}
+    if (server) {
+      try {
+        await api.delete('/notify/push-token');
+      } catch (_) {}
+    }
     try {
       await FirebaseMessaging.instance.unregister();
     } catch (_) {}

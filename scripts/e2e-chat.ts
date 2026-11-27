@@ -64,14 +64,16 @@ interface Person {
   token: string;
   userId: string;
   deviceId: string;
+  refreshToken: string;
   keys: e2ee.DeviceKeyPair;
   socket?: Socket;
   events: Array<{ event: string; payload: any }>;
 }
 
-async function signUp(name: string, email = `${name}.${Date.now()}@example.com`): Promise<Person> {
+async function signUp(name: string, email = `${name}.${Date.now()}@example.com`, useRequestKey = false): Promise<Person> {
   const keys = e2ee.generateDeviceKeys();
-  const requestCode = () => call('auth', '/auth/otp/request', { body: { email, locale: 'en' } });
+  const requestKey = useRequestKey ? e2ee.newCallKey().slice(0, 22) : undefined;
+  const requestCode = () => call('auth', '/auth/otp/request', { body: { email, locale: 'en', requestKey } });
   let { status: otpStatus, body: otp } = await requestCode();
   const retryAfter = otp.error?.details?.retryAfterSeconds;
   if (otpStatus === 429 && retryAfter > 0 && retryAfter <= 60) {
@@ -81,13 +83,14 @@ async function signUp(name: string, email = `${name}.${Date.now()}@example.com`)
   if (!otp.challengeId) throw new Error(`code request for ${name} failed (${otpStatus}): ${JSON.stringify(otp)}`);
   const code = process.env.E2E_EXTERNAL ? process.env.DEV_FIXED_OTP : await until(() => codes.get(email));
   const device = { name: `${name}'s test device`, platform: 'android', identityKey: keys.publicKey };
-  const { body: verified } = await call('auth', '/auth/otp/verify', { body: { challengeId: otp.challengeId, code, device } });
+  const proof = requestKey ? { requestKey } : { challengeId: otp.challengeId };
+  const { body: verified } = await call('auth', '/auth/otp/verify', { body: { ...proof, code, device } });
   if (verified.status === 'signed_in')
-    return { name, token: verified.tokens.accessToken, userId: verified.user.id, deviceId: verified.deviceId, keys, events: [] };
+    return { name, token: verified.tokens.accessToken, refreshToken: verified.tokens.refreshToken, userId: verified.user.id, deviceId: verified.deviceId, keys, events: [] };
   const username = `${name}_${Date.now().toString(36)}`;
   const { status: signedStatus, body: signed } = await call('auth', '/auth/signup', { body: { signupToken: verified.signupToken, username, displayName: name, device } });
   if (!signed.tokens) throw new Error(`sign-up for ${name} failed (${signedStatus}): ${JSON.stringify(signed)} / verify: ${JSON.stringify(verified)}`);
-  return { name, token: signed.tokens.accessToken, userId: signed.user.id, deviceId: signed.deviceId, keys, events: [] };
+  return { name, token: signed.tokens.accessToken, refreshToken: signed.tokens.refreshToken, userId: signed.user.id, deviceId: signed.deviceId, keys, events: [] };
 }
 
 function connect(person: Person) {
@@ -246,12 +249,20 @@ async function main() {
   await checkHistory(rafi, rafiEmail, mim, conversationId, messageId, reply.body.message.id, deviceKeys);
   const boss = await signUp('boss', OWNER_EMAIL);
   await phase6({ call, check }, { boss, ayesha, rafi, mim });
+  await checkNativeSession(ayesha);
   for (const person of [ayesha, rafi, mim]) person.socket?.disconnect();
 }
 
 async function checkHistory(source: Person, email: string, outsider: Person, conversationId: string, messageId: string, deletedId: string, known: Map<string, string>) {
   const receiver = await signUp(source.name, email);
   const target = { deviceId: receiver.deviceId, identityKey: receiver.keys.publicKey };
+  await connect(receiver);
+  try {
+  check('the new device can request old history', (await call('chat', '/chat/history/requests', { token: receiver.token, body: {} })).status === 200);
+  const pending = await call('chat', '/chat/history/requests', { token: source.token });
+  check('the old device sees the new device’s request', pending.body.incoming?.some((entry: { deviceId: string }) => entry.deviceId === receiver.deviceId));
+  const incomplete = await call('chat', '/chat/history/requests/complete', { token: source.token, body: target });
+  check('history cannot be marked restored before a key is transferred', incomplete.body.completed === false);
   const { body: original } = await call('chat', `/chat/conversations/${conversationId}/messages`, { token: receiver.token });
   check('a newly linked device initially has ciphertext without the old key', original.messages?.find((m: any) => m.id === messageId)?.sealedKey === null);
 
@@ -266,11 +277,48 @@ async function checkHistory(source: Person, email: string, outsider: Person, con
   check('a transfer for a different ciphertext version is ignored', (await submit(source.token, 'A'.repeat(32))).body.added === 0);
   check('an authorized transfer stores one wrapper', (await submit(source.token, key.nonce)).body.added === 1);
   check('retrying the transfer is idempotent', (await submit(source.token, key.nonce)).body.added === 0);
+  const completed = await call('chat', '/chat/history/requests/complete', { token: source.token, body: target });
+  check('the new device is notified when history is restored', completed.body.completed === true && !!(await until(() => receiver.events.find((event) => event.event === 'chat:history-synced'))));
 
   const { body: imported } = await call('chat', `/chat/messages/${messageId}`, { token: receiver.token });
   check('the new device opens old history with its own key', imported.message?.keySenderDeviceId === source.deviceId && e2ee.open(imported.message, source.keys.publicKey, receiver.keys).text === 'Hello Rafi (edited)');
   const { body: unchanged } = await call('chat', `/chat/messages/${messageId}`, { token: source.token });
   check('the original device still opens the original wrapper', !unchanged.message?.keySenderDeviceId && e2ee.open(unchanged.message, known.get(unchanged.message.senderDeviceId)!, source.keys).text === 'Hello Rafi (edited)');
+  } finally {
+    receiver.socket?.disconnect();
+  }
+}
+
+async function checkNativeSession(other: Person) {
+  const person = await signUp('native', undefined, true);
+  check('OTP verification works when the original request response was lost', !!person.token);
+  const forbidden = await call('auth', `/auth/devices/${person.deviceId}`, { method: 'DELETE', token: other.token });
+  check('another account cannot revoke this device', forbidden.status === 404);
+  const attempt = 'a'.repeat(32);
+  const refresh = (refreshToken: string, rotationAttempt: string) => call('auth', '/auth/refresh', { body: { refreshToken, attempt: rotationAttempt } });
+  const first = await refresh(person.refreshToken, attempt);
+  const retry = await refresh(person.refreshToken, attempt);
+  check('repeating one native refresh returns its original replacement token', first.status === 200 && retry.status === 200 && retry.body.tokens?.refreshToken === first.body.tokens?.refreshToken);
+  const reuse = await refresh(person.refreshToken, 'b'.repeat(32));
+  check('using an old refresh token with a different attempt revokes the device', reuse.status === 401 && reuse.body.error?.code === 'session_revoked');
+  const revoked = await call('chat', '/chat/conversations', { token: first.body.tokens?.accessToken });
+  check('a revoked device cannot reuse an issued access token', revoked.status === 401 && revoked.body.error?.code === 'session_revoked');
+  if (process.env.E2E_EXTERNAL) return;
+
+  const [{ openSession, listDevices }, { env }, { connectDatabase }, { Snowflake }] = await Promise.all([
+    import('../services/auth/src/sessions.ts'), import('../services/auth/src/config.ts'), import('@talkie/db'), import('@talkie/core'),
+  ]);
+  const db = connectDatabase(env, env.DB_NAME);
+  try {
+    const account = await db.one<import('../services/auth/src/sessions.ts').AccountRow>('SELECT id, email, status, role FROM accounts WHERE id = ?', [person.userId]);
+    const ids = new Snowflake(901);
+    const names = ['first', 'second', 'third', 'fourth'];
+    for (const name of names) await openSession(db, ids, account!, { name, platform: 'android' }, { ip: '127.0.0.1', userAgent: undefined });
+    const devices = await listDevices(db, person.userId, '0');
+    check('linking a fourth device revokes the oldest one', devices.length === 3 && !devices.some((device) => device.name === 'first'));
+  } finally {
+    await db.close();
+  }
 }
 
 main()

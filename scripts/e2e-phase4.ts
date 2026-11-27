@@ -40,6 +40,11 @@ export async function phase4({ call, check }: { call: Call; check: Check }, peop
   check('outsiders cannot see the call', outsider.status === 404);
   const accepted = await call('meet', `/meet/calls/${callId}/accept`, { token: rafi.token, body: {} });
   check('Rafi answers', accepted.status === 200 && accepted.body.call.state === 'active' && !!accepted.body.grant.token, accepted.body);
+  if (process.env.E2E_MEDIA === '1') {
+    const media = await verifyMedia(started.body.grant, accepted.body.grant, callKey);
+    check('LiveKit carries encrypted audio frames', media.audio);
+    check('LiveKit carries encrypted video frames', media.video);
+  }
   check('Ayesha sees that Rafi joined', !!(await until(() => ayesha.events.find((e) => e.event === 'call:update' && e.payload.change === 'joined'))));
   await wait(1100);
   await call('meet', `/meet/calls/${callId}/leave`, { token: ayesha.token, body: {} });
@@ -143,4 +148,46 @@ export async function phase4({ call, check }: { call: Call; check: Check }, peop
   check('ending the meeting tells everyone', !!(await until(() => rafi.events.find((e) => e.event === 'meeting:update' && e.payload.change === 'ended'))));
   const ended = await call('meet', `/meet/meetings/${code}`, { token: rafi.token });
   check('the meeting is ended', ended.body.meeting.status === 'ended' && ended.body.meeting.sessionId === null);
+}
+
+async function verifyMedia(senderGrant: { url: string; token: string }, receiverGrant: { url: string; token: string }, callKey: string) {
+  const rtc = await import('@livekit/rtc-node');
+  const sender = new rtc.Room();
+  const receiver = new rtc.Room();
+  const options = { autoSubscribe: true, dynacast: true, e2ee: { keyProviderOptions: { sharedKey: new TextEncoder().encode(callKey) } } };
+  const seen = { audio: false, video: false };
+  receiver.on(rtc.RoomEvent.TrackSubscribed, (track) => {
+    void (async () => {
+      if (track.kind === rtc.TrackKind.KIND_AUDIO) {
+        for await (const frame of new rtc.AudioStream(track)) {
+          if (frame.data.some((sample) => Math.abs(sample) > 500)) { seen.audio = true; break; }
+        }
+      } else {
+        for await (const event of new rtc.VideoStream(track)) {
+          if (event.frame.width === 160) { seen.video = true; break; }
+        }
+      }
+    })().catch(() => {});
+  });
+  const audio = new rtc.AudioSource(48_000, 1);
+  const video = new rtc.VideoSource(160, 120);
+  try {
+    await Promise.all([sender.connect(senderGrant.url, senderGrant.token, options), receiver.connect(receiverGrant.url, receiverGrant.token, options)]);
+    sender.e2eeManager?.setEnabled(true);
+    receiver.e2eeManager?.setEnabled(true);
+    await sender.localParticipant!.publishTrack(rtc.LocalAudioTrack.createAudioTrack('test tone', audio), new rtc.TrackPublishOptions({ source: rtc.TrackSource.SOURCE_MICROPHONE }));
+    await sender.localParticipant!.publishTrack(rtc.LocalVideoTrack.createVideoTrack('test frame', video), new rtc.TrackPublishOptions({ source: rtc.TrackSource.SOURCE_CAMERA }));
+    const deadline = Date.now() + 7_000;
+    const samples = new Int16Array(960).map((_, i) => Math.round(Math.sin(i * Math.PI / 54) * 6500));
+    const pixels = new Uint8Array(160 * 120 * 4).fill(180);
+    while ((!seen.audio || !seen.video) && Date.now() < deadline) {
+      await audio.captureFrame(new rtc.AudioFrame(samples, 48_000, 1, 960));
+      video.captureFrame(new rtc.VideoFrame(pixels, 160, 120, rtc.VideoBufferType.RGBA));
+      await wait(20);
+    }
+  } finally {
+    await Promise.allSettled([sender.disconnect(), receiver.disconnect()]);
+    await Promise.allSettled([audio.close(), video.close()]);
+  }
+  return seen;
 }

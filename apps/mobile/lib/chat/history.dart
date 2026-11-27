@@ -10,6 +10,8 @@ String? historyTransferCode(Session session) {
   return id == null || key == null ? null : '$id.$key';
 }
 
+String historyApprovalCode(String identityKey) => Crypto.instance.safetyNumber(identityKey, identityKey).replaceAll(' ', '').substring(0, 12);
+
 Future<({int added, int unreadable})> transferHistory(Chat chat, String code) async {
   final session = chat.session;
   final sourceId = session.deviceId;
@@ -49,5 +51,6 @@ Future<({int added, int unreadable})> transferHistory(Chat chat, String code) as
     }
     before = page['nextBefore'] as String?;
   } while (before != null);
+  await api.post('/chat/history/requests/complete', {...target, 'transferred': added > 0});
   return (added: added, unreadable: unreadable);
 }

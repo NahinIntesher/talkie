@@ -175,7 +175,7 @@ const toUsers = (userIds: unknown, event: string, payload: unknown) => {
   for (const id of userIds) io.to(userRoom(String(id))).emit(event as never, payload as never);
 };
 
-bus.subscribe('realtime', ['message.sent', 'message.updated', 'conversation.updated', 'receipt.updated', 'status.updated', 'device.revoked', 'call.ringing', 'call.updated', 'call.ended', 'meeting.updated', 'meeting.admission'], async (event) => {
+bus.subscribe('realtime', ['message.sent', 'message.updated', 'conversation.updated', 'receipt.updated', 'history.synced', 'status.updated', 'device.revoked', 'call.ringing', 'call.updated', 'call.ended', 'meeting.updated', 'meeting.admission'], async (event) => {
   const payload = event.payload as Record<string, unknown> & { recipients?: string[]; conversationId?: string };
   const { recipients, ...rest } = payload;
   switch (event.type) {
@@ -185,6 +185,9 @@ bus.subscribe('realtime', ['message.sent', 'message.updated', 'conversation.upda
       return toUsers(recipients, 'chat:message-updated', rest);
     case 'receipt.updated':
       return toUsers(recipients, 'chat:receipt', rest);
+    case 'history.synced':
+      io.to(deviceRoom(String(payload.deviceId))).emit('chat:history-synced' as never, { deviceId: payload.deviceId } as never);
+      return;
     case 'status.updated':
       return toUsers(recipients, 'status:update', rest);
     case 'call.ringing':

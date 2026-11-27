@@ -42,6 +42,7 @@ export default function SignInPage() {
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [challenge, setChallenge] = useState<OtpRequested | null>(null);
+  const requestKey = useRef('');
   const [code, setCode] = useState('');
   const [signupToken, setSignupToken] = useState('');
   const [name, setName] = useState('');
@@ -76,16 +77,22 @@ export default function SignInPage() {
     if (!parsed.success) return setError(parsed.error.issues[0]?.message ?? t.errors.generic);
     setBusy(true);
     setError(null);
-    try {
-      const result = await api<OtpRequested>('/auth/otp/request', { method: 'POST', body: { email: parsed.data, locale } });
+    const attempt = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+    const showCode = (result: OtpRequested) => {
+      requestKey.current = attempt;
       setChallenge(result);
       setSentAt(Date.now());
       setNow(Date.now());
       setCode('');
       setCodeInvalid(false);
       setStep('code');
+    };
+    try {
+      showCode(await api<OtpRequested>('/auth/otp/request', { method: 'POST', body: { email: parsed.data, locale, requestKey: attempt } }));
     } catch (err) {
-      setError(message(err));
+      if (err instanceof ApiError && (err.status === 0 || err.status >= 500)) {
+        showCode({ challengeId: '', expiresAt: '', resendAfterSeconds: 60, delivery: 'uncertain' });
+      } else setError(message(err));
     } finally {
       setBusy(false);
     }
@@ -97,7 +104,8 @@ export default function SignInPage() {
     setError(null);
     setCodeInvalid(false);
     try {
-      const result = await api<OtpVerified>('/auth/otp/verify', { method: 'POST', body: { challengeId: challenge.challengeId, code: value, device: browserDevice() } });
+      const proof = challenge.challengeId ? { challengeId: challenge.challengeId } : { requestKey: requestKey.current };
+      const result = await api<OtpVerified>('/auth/otp/verify', { method: 'POST', body: { ...proof, code: value, device: browserDevice() } });
       if (result.status === 'signed_in') return finish(result);
       setSignupToken(result.signupToken);
       setStep('profile');
@@ -161,6 +169,9 @@ export default function SignInPage() {
                   <p className="mt-2 leading-relaxed text-muted">
                     <span className="font-semibold [overflow-wrap:anywhere] text-text">{email.trim().toLowerCase()}</span>
                   </p>
+                  {challenge?.delivery === 'uncertain' && (
+                    <p className="mt-2 text-sm text-muted">{locale === 'bn' ? 'মেইল পৌঁছেছে কি না নিশ্চিত হওয়া যায়নি। কোড পেলে এখানে দিন, না পেলে আবার পাঠান।' : 'Delivery could not be confirmed. Enter the code if it arrives, or resend it.'}</p>
+                  )}
                   <div className="mt-7">
                     <OtpInput value={code} onChange={(v) => { setCode(v); setCodeInvalid(false); }} onComplete={verify} disabled={busy} invalid={codeInvalid} label={t.auth.codeLabel} />
                   </div>

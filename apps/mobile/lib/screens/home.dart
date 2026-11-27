@@ -67,6 +67,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final chat = context.read<Chat>();
     if (state == AppLifecycleState.resumed) {
       chat.resumed();
+      context.read<Calls>().checkIncoming();
       push.register(openChat: () => chat.activeId, requestPermission: false);
     } else if (state == AppLifecycleState.paused) {
       chat.appVisible = false;

@@ -592,6 +592,24 @@ function bindRealtime() {
     });
   });
 
+  on('chat:history-synced', () => {
+    const { activeId, threads } = get();
+    set({ threads: Object.fromEntries(Object.entries(threads).filter(([id, thread]) => id === activeId || !thread.items.some((m) => m.unreadable))) });
+    if (activeId) {
+      const locked = threads[activeId]?.items.filter((m) => m.unreadable).slice(0, 25) ?? [];
+      void Promise.all(locked.map((m) => fetchMessage(m.id))).then((messages) => {
+        const byId = new Map(messages.flatMap((m) => m && !m.unreadable ? [[m.id, m] as const] : []));
+        set((state) => {
+          const current = state.threads[activeId];
+          if (!current) return {};
+          const items = current.items.map((m) => m.unreadable ? byId.get(m.id) ?? m : m);
+          return { threads: { ...state.threads, [activeId]: { ...current, items } } };
+        });
+      }).catch(() => {});
+    }
+    void loadConversations().catch(() => {});
+  });
+
   on('typing', ({ conversationId, userId, active }: { conversationId: string; userId: string; active: boolean }) => {
     set((state) => {
       const typing = { ...(state.typing[conversationId] ?? {}) };

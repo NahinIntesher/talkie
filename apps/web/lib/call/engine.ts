@@ -123,8 +123,14 @@ async function connect(grant: MediaGrant, callKey: string, video: boolean): Prom
     const session = get().session;
     if (session && session.phase !== 'ended') void hangUp('disconnected');
   });
-  await room.setE2EEEnabled(true);
-  await room.connect(grant.url, grant.token);
+  try {
+    await room.setE2EEEnabled(true);
+    await room.connect(grant.url, grant.token);
+  } catch (error) {
+    room.removeAllListeners();
+    await room.disconnect().catch(() => {});
+    throw error;
+  }
   // The call is live as soon as the room connects; the microphone and camera start alongside (a permission
   // prompt or a missing device must not hold up hearing and seeing the other person).
   void (async () => {
@@ -144,19 +150,26 @@ function friendly(error: unknown): string {
 
 // ───────── Outgoing ─────────
 
+let startingCall = false;
+
 export async function startCall(conversationId: string, media: 'audio' | 'video'): Promise<string | null> {
-  if (get().session) return 'You are already on a call.';
-  if (!(await callsEnabled())) return 'Calls are not set up on this server yet.';
+  if (get().session || startingCall) return 'You are already on a call.';
   const keys = deviceKeys();
   if (!keys) return 'Your encryption keys are not ready yet.';
+  startingCall = true;
+  let startedId: string | undefined;
   try {
     const callKey = e2ee.newCallKey();
-    const { devices } = await api<{ devices: DeviceKey[] }>(`/chat/conversations/${conversationId}/devices`);
-    const recipients = [...devices, { deviceId: keys.deviceId, identityKey: keys.pair.publicKey, userId: '' }];
-    const { call, grant } = await api<{ call: CallInfo; grant: MediaGrant | null }>('/meet/calls', {
+    const { devices } = await api<{ devices: DeviceKey[] }>(`/chat/conversations/${conversationId}/devices?fresh=1`);
+    const dial = (recipients: DeviceKey[]) => api<{ call: CallInfo; grant: MediaGrant | null }>('/meet/calls', {
       method: 'POST',
-      body: { conversationId, media, keys: e2ee.sealSecret(callKey, keys.pair, recipients) },
+      body: { conversationId, media, keys: e2ee.sealSecret(callKey, keys.pair, [...recipients, { deviceId: keys.deviceId, identityKey: keys.pair.publicKey, userId: '' }]) },
     });
+    const { call, grant } = await dial(devices).catch((error: unknown) => {
+      if (error instanceof ApiError && error.code === 'devices_changed' && Array.isArray(error.details?.devices)) return dial(error.details.devices as DeviceKey[]);
+      throw error;
+    });
+    startedId = call.id;
     void loadProfiles(call.participants.map((p) => p.userId));
     set({ session: { info: call, phase: 'outgoing', room: null, micOn: true, camOn: media === 'video', screenOn: false, minimized: false, endReason: null, version: 0 } });
     if (call.state === 'busy' || !grant) {
@@ -166,12 +179,17 @@ export async function startCall(conversationId: string, media: 'audio' | 'video'
     const joinedExisting = call.state === 'active';
     if (!joinedExisting) playTone('ringback');
     const room = await connect(grant, joinedExisting ? await keyFor(call) : callKey, media === 'video');
-    patch({ room, phase: joinedExisting ? 'active' : 'outgoing' });
+    if (get().session?.info.id === call.id && get().session?.phase !== 'ended') patch({ room });
+    else await room.disconnect();
+    if (joinedExisting && get().session?.info.id === call.id && get().session?.phase !== 'ended') patch({ phase: 'active' });
     return null;
   } catch (error) {
     stopTone();
     set({ session: null });
+    if (startedId) void api(`/meet/calls/${startedId}/leave`, { method: 'POST', body: {} }).catch(() => {});
     return friendly(error);
+  } finally {
+    startingCall = false;
   }
 }
 
@@ -189,14 +207,18 @@ export async function accept(media: 'audio' | 'video') {
   if (!incoming) return;
   stopTone();
   set({ incoming: null });
+  let accepted = false;
   try {
     const callKey = await keyFor(incoming);
     const { call, grant } = await api<{ call: CallInfo; grant: MediaGrant }>(`/meet/calls/${incoming.id}/accept`, { method: 'POST', body: {} });
+    accepted = true;
     set({ session: { info: call, phase: 'connecting', room: null, micOn: true, camOn: media === 'video', screenOn: false, minimized: false, endReason: null, version: 0 } });
     const room = await connect(grant, callKey, media === 'video');
-    patch({ room, phase: 'active' });
+    if (get().session?.info.id === call.id && get().session?.phase !== 'ended') patch({ room, phase: 'active' });
+    else await room.disconnect();
   } catch (error) {
     set({ session: null });
+    if (accepted) void api(`/meet/calls/${incoming.id}/leave`, { method: 'POST', body: {} }).catch(() => {});
     alert(friendly(error));
   }
 }

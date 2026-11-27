@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { AnimatePresence, motion } from 'motion/react';
 import clsx from 'clsx';
 import { AlertCircle, Ban, ChevronDown, Clock, Copy, Forward, Info, Lock, Pencil, Pin, PinOff, Reply, SmilePlus, Star, StarOff, Trash2 } from 'lucide-react';
@@ -182,7 +183,7 @@ export const MessageBubble = memo(function MessageBubble({
           ) : (
             <p className="flex items-center gap-1.5 text-[0.9rem] leading-snug opacity-75">
               <Lock className="size-4" aria-hidden />
-              {message.unreadable === 'not_for_this_device' ? s.notForDevice : s.decryptFailed}
+              {message.unreadable === 'not_for_this_device' ? <Link href="/app/settings?section=devices" className="underline underline-offset-2">{s.notForDevice}</Link> : s.decryptFailed}
             </p>
           )}
           <span className={clsx('float-right mt-1 ml-3 flex translate-y-0.5 items-center gap-1 text-[0.68rem] select-none', mine ? 'text-[var(--bubble-out-meta)]' : 'text-subtle', emojiOnly && 'rounded-full bg-surface/80 px-2 py-0.5 text-subtle')}>

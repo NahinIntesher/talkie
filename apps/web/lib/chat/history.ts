@@ -1,4 +1,4 @@
-import { openSecret, sealSecret } from '@talkie/e2ee';
+import { openSecret, safetyNumber, sealSecret } from '@talkie/e2ee';
 import { api } from '../api';
 import { deviceKeys, senderKeys } from './keys';
 
@@ -11,6 +11,8 @@ export function historyTransferCode() {
   const current = deviceKeys();
   return current ? `${current.deviceId}.${current.pair.publicKey}` : null;
 }
+
+export const historyApprovalCode = (identityKey: string) => safetyNumber(identityKey, identityKey).replaceAll(' ', '').slice(0, 12);
 
 export async function transferHistory(code: string) {
   const match = /^([1-9]\d{0,19})\.([A-Za-z0-9_-]{43})$/.exec(code.trim());
@@ -42,5 +44,6 @@ export async function transferHistory(code: string) {
     }
     before = page.nextBefore;
   } while (before);
+  await api('/chat/history/requests/complete', { method: 'POST', body: { ...target, transferred: added > 0 } });
   return { added, unreadable };
 }

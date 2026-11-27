@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { fail } from '@talkie/core';
+import { AppError, fail } from '@talkie/core';
 import { caller, type AuthContext } from '@talkie/auth-kit';
 import type { Executor } from '@talkie/db';
 import * as contract from '@talkie/contracts';
@@ -132,13 +132,20 @@ export function registerCallRoutes(app: FastifyInstance, ctx: Context) {
     // A group call already going on in this chat: join it instead of ringing again.
     const running = await db.one<CallRow>("SELECT * FROM calls WHERE conversation_id = ? AND state = 'active' AND created_at > CURRENT_TIMESTAMP(3) - INTERVAL 6 HOUR ORDER BY id DESC LIMIT 1", [input.conversationId]);
     if (running && conversation.kind === 'group') {
+      const current = await view(running, me);
+      if (!current.sealedKey) fail('conflict', 'This device cannot join the existing encrypted call.');
       await db.run("INSERT INTO call_participants (call_id, user_id, state, joined_at) VALUES (?, ?, 'joined', CURRENT_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE state = 'joined', joined_at = COALESCE(joined_at, CURRENT_TIMESTAMP(3)), left_at = NULL", [running.id, me.userId]);
       return { call: await view(running, me), grant: await grant(running, me), joinedExisting: true };
     }
     const devices = await ctx.services.devices(conversation.memberIds);
+    const provided = new Map(input.keys.map((key) => [key.deviceId, key]));
+    if (!devices.some((device) => device.userId !== me.userId)) fail('conflict', 'The other participants have no active device ready for encrypted calls.');
+    if (devices.some((device) => device.userId !== me.userId && !provided.has(device.deviceId))) {
+      throw new AppError('devices_changed', 'The call devices changed. Try again.', { devices });
+    }
     const allowed = new Set(devices.map((d) => d.deviceId));
     allowed.add(me.deviceId);
-    const keys = input.keys.filter((key) => allowed.has(key.deviceId));
+    const keys = [...provided.values()].filter((key) => allowed.has(key.deviceId));
     const id = ctx.ids.next();
     const directBusy = conversation.kind === 'direct' && (await busy(others[0]!, id));
     const call = await db.tx(async (tx) => {
@@ -173,8 +180,12 @@ export function registerCallRoutes(app: FastifyInstance, ctx: Context) {
     const { id } = z.object({ id: contract.id }).parse(request.params);
     const call = await load(id, me);
     if (!OPEN.includes(call.state)) fail('conflict', 'This call has ended.');
+    if (call.conversation_id && !(await ctx.services.conversation(call.conversation_id)).memberIds.includes(me.userId)) fail('not_found', 'Call not found.');
+    if (!(await db.one('SELECT 1 FROM call_keys WHERE call_id = ? AND device_id = ?', [id, me.deviceId]))) fail('conflict', 'This device cannot join this encrypted call.');
     if (await busy(me.userId, id)) fail('conflict', 'Leave your other call first.');
     await db.tx(async (tx) => {
+      const current = await tx.one<{ state: contract.CallState }>('SELECT state FROM calls WHERE id = ? FOR UPDATE', [id]);
+      if (!current || !OPEN.includes(current.state)) fail('conflict', 'This call has ended.');
       await tx.run("UPDATE call_participants SET state = 'joined', joined_at = COALESCE(joined_at, CURRENT_TIMESTAMP(3)), left_at = NULL WHERE call_id = ? AND user_id = ?", [id, me.userId]);
       await tx.run("UPDATE calls SET state = 'active', answered_at = COALESCE(answered_at, CURRENT_TIMESTAMP(3)) WHERE id = ? AND state = 'ringing'", [id]);
       await emit(tx, ctx, 'call.updated', id, (await participants(tx, id)).map((p) => p.user_id), { callId: id, change: 'joined', userId: me.userId });
@@ -236,6 +247,7 @@ export function registerCallRoutes(app: FastifyInstance, ctx: Context) {
     if (!call || !OPEN.includes(call.state) || !call.conversation_id) fail('not_found', 'This call has ended.');
     const conversation = await ctx.services.conversation(call!.conversation_id!);
     if (!conversation.memberIds.includes(me.userId)) fail('not_found', 'Call not found.');
+    if (!(await db.one('SELECT 1 FROM call_keys WHERE call_id = ? AND device_id = ?', [id, me.deviceId]))) fail('conflict', 'This device cannot join this encrypted call.');
     if (await busy(me.userId, id)) fail('conflict', 'Leave your other call first.');
     await db.tx(async (tx) => {
       await tx.run(

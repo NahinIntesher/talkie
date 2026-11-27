@@ -21,6 +21,7 @@ class Chat extends ChangeNotifier {
   final Session session;
 
   bool ready = false;
+  bool loadFailed = false;
   final Map<String, Conversation> conversations = {};
   final Map<String, Thread> threads = {};
   final Map<String, Receipts> receipts = {};
@@ -41,6 +42,7 @@ class Chat extends ChangeNotifier {
   final _timers = <Timer>[];
   bool _started = false;
   bool _disposed = false;
+  Future<void>? _loadingConversations;
 
   String get me => session.userId;
   Crypto get _crypto => Crypto.instance;
@@ -55,11 +57,7 @@ class Chat extends ChangeNotifier {
     if (_started) return;
     _started = true;
     _bindRealtime();
-    try {
-      await loadConversations();
-    } catch (_) {}
-    ready = true;
-    _changed();
+    await loadConversations();
   }
 
   void stop() {
@@ -198,8 +196,8 @@ class Chat extends ChangeNotifier {
   // ───────── Conversations ─────────
 
   Future<void> _storeSummaries(List<Json> summaries, {bool replace = false}) async {
-    final lasts = await _decrypt(summaries.map((s) => s['lastMessage']).whereType<Json>().toList());
-    final byId = {for (final m in lasts) m.id: m};
+    if (_disposed) return;
+    final stamped = <String, Conversation>{};
     if (replace) conversations.clear();
     for (final s in summaries) {
       final id = s['id'] as String;
@@ -207,13 +205,19 @@ class Chat extends ChangeNotifier {
         s['unreadCount'] = 0;
         s['markedUnread'] = false;
       }
-      final lastId = (s['lastMessage'] as Json?)?['id'] as String?;
-      conversations[id] = Conversation(s, last: lastId != null ? byId[lastId] : null);
+      final wire = s['lastMessage'] as Json?;
+      conversations[id] = stamped[id] = Conversation(s, last: wire == null ? null : ChatMessage.fromWire(wire));
       receipts[id] = Receipts.fromJson(s['receipts'] as Json?);
     }
     _changed();
     loadProfiles(summaries.expand((s) => [s['peerId'], (s['lastMessage'] as Json?)?['senderId']]).whereType<String>());
     _watchPresence();
+    final lasts = await _decrypt(summaries.map((s) => s['lastMessage']).whereType<Json>().toList());
+    for (final message in lasts) {
+      final current = conversations[message.conversationId];
+      if (current != null && identical(stamped[message.conversationId], current) && current.last?.id == message.id) current.last = message;
+    }
+    _changed();
   }
 
   List<Conversation> ordered({bool archived = false}) {
@@ -228,8 +232,20 @@ class Chat extends ChangeNotifier {
   int get unreadChats => conversations.values.where((c) => !c.archived && (c.unreadCount > 0 || c.markedUnread)).length;
 
   Future<void> loadConversations() async {
-    final result = await api.get('/chat/conversations');
-    await _storeSummaries((result['conversations'] as List).cast<Json>(), replace: true);
+    return _loadingConversations ??= () async {
+      try {
+        final result = await api.get('/chat/conversations');
+        ready = true;
+        loadFailed = false;
+        await _storeSummaries((result['conversations'] as List).cast<Json>(), replace: true);
+      } catch (_) {
+        loadFailed = true;
+      } finally {
+        ready = true;
+        _loadingConversations = null;
+        _changed();
+      }
+    }();
   }
 
   Future<Json?> reload(String conversationId) async {
@@ -255,7 +271,8 @@ class Chat extends ChangeNotifier {
   Future<void> open(String? conversationId) async {
     activeId = conversationId;
     if (conversationId == null) return;
-    reload(conversationId);
+    final summary = reload(conversationId);
+    if (!conversations.containsKey(conversationId) && await summary == null) throw ApiError(0, 'unavailable', 'Could not load this chat.');
     final thread = threads[conversationId];
     if (thread?.loaded != true || thread!.items.any((m) => m.unreadable != null)) await loadOlder(conversationId, initial: true);
     markRead(conversationId);
@@ -337,7 +354,7 @@ class Chat extends ChangeNotifier {
 
   Future<List<Recipient>> _devicesFor(String conversationId, {bool fresh = false}) async {
     if (!fresh && _deviceCache.containsKey(conversationId)) return _deviceCache[conversationId]!;
-    final result = await api.get('/chat/conversations/$conversationId/devices');
+    final result = await api.get('/chat/conversations/$conversationId/devices${fresh ? '?fresh=1' : ''}');
     final devices = (result['devices'] as List).map((d) => Recipient.fromJson(d as Json)).toList();
     _deviceCache[conversationId] = devices;
     _remember(devices);
@@ -790,12 +807,32 @@ class Chat extends ChangeNotifier {
     });
 
     socket.on('session:device-revoked', (raw) {
-      if (_asJson(raw)['deviceId'] == session.deviceId) session.signOut();
+      if (_asJson(raw)['deviceId'] == session.deviceId) session.deviceRevoked();
+    });
+
+    socket.on('chat:history-synced', (_) async {
+      try {
+        final selected = activeId;
+        threads.removeWhere((id, thread) => id != selected && thread.items.any((message) => message.unreadable != null));
+        final current = threads[selected];
+        if (current != null) {
+          final locked = current.items.where((message) => message.unreadable != null).take(25);
+          final restored = await Future.wait(locked.map((message) => fetchMessage(message.id)));
+          final byId = {for (final message in restored.whereType<ChatMessage>()) if (message.unreadable == null) message.id: message};
+          current.items = current.items.map((message) => message.unreadable != null ? byId[message.id] ?? message : message).toList();
+          _changed();
+        }
+        await loadConversations();
+      } catch (_) {}
     });
 
     // Keep the socket's token fresh alongside the HTTP session.
     _timers.add(Timer.periodic(const Duration(minutes: 10), (_) async {
       if (await api.refresh?.call() == true) realtime.renewToken();
+    }));
+
+    _timers.add(Timer.periodic(const Duration(seconds: 15), (_) {
+      if (appVisible && realtime.state.value != Connection.connected) _syncAfterReconnect();
     }));
 
     // Expire stale typing indicators.
@@ -814,6 +851,16 @@ class Chat extends ChangeNotifier {
   /// Called when the app returns to the foreground.
   void resumed() {
     appVisible = true;
+    _syncAfterReconnect();
     if (activeId != null) markRead(activeId!);
+  }
+
+  Future<void> _syncAfterReconnect() async {
+    await loadConversations();
+    final conversationId = activeId;
+    if (conversationId == null || _disposed) return;
+    try {
+      await _loadNewer(conversationId);
+    } catch (_) {}
   }
 }

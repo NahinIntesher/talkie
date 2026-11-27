@@ -6,7 +6,7 @@ import { writeOutbox, type Database } from '@talkie/db';
 import * as contract from '@talkie/contracts';
 import { env, OTP, ownerEmails } from './config.ts';
 import { sendOtpEmail, usersClient } from './clients.ts';
-import { listDevices, openSession, revokeDevice, rotate, type AccountRow, type IssuedSession } from './sessions.ts';
+import { listDevices, openSession, revokeDevice, rotate, sessionIsActive, type AccountRow, type IssuedSession } from './sessions.ts';
 
 type Guards = ReturnType<typeof installAuth>;
 
@@ -67,35 +67,37 @@ export function registerRoutes(app: FastifyInstance, db: Database, ids: Snowflak
     const challengeId = ids.next();
     const code = env.DEV_FIXED_OTP ?? randomDigits(contract.OTP_LENGTH);
     const expiresAt = new Date(Date.now() + OTP.ttlMinutes * 60_000);
-    await db.run('INSERT INTO otp_challenges (id, email, code_hash, expires_at, request_ip) VALUES (?, ?, ?, ?, ?)', [
+    await db.run('INSERT INTO otp_challenges (id, email, code_hash, expires_at, request_ip, request_key_hash) VALUES (?, ?, ?, ?, ?, ?)', [
       challengeId,
       input.email,
       codeHash(challengeId, code),
       expiresAt,
       ip,
+      input.requestKey ? sha256(input.requestKey) : null,
     ]);
-    await sendOtpEmail(request.log, input.email, code, input.locale);
-    const body: contract.OtpRequested = { challengeId, expiresAt: expiresAt.toISOString(), resendAfterSeconds: OTP.resendAfterSeconds };
+    const delivery = await sendOtpEmail(request.log, input.email, code, input.locale);
+    const body: contract.OtpRequested = { challengeId, expiresAt: expiresAt.toISOString(), resendAfterSeconds: OTP.resendAfterSeconds, delivery };
     return body;
   });
 
   app.post('/auth/otp/verify', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     const input = contract.otpVerify.parse(request.body);
     const check = await db.tx(async (tx) => {
-      const challenge = await tx.one<{ email: string; code_hash: Buffer; attempts: number; expires_at: Date; verified_at: Date | null; consumed_at: Date | null }>(
-        'SELECT email, code_hash, attempts, expires_at, verified_at, consumed_at FROM otp_challenges WHERE id = ? FOR UPDATE',
-        [input.challengeId],
+      const byId = 'challengeId' in input;
+      const challenge = await tx.one<{ id: string; email: string; code_hash: Buffer; attempts: number; expires_at: Date; verified_at: Date | null; consumed_at: Date | null }>(
+        `SELECT id, email, code_hash, attempts, expires_at, verified_at, consumed_at FROM otp_challenges WHERE ${byId ? 'id' : 'request_key_hash'} = ? FOR UPDATE`,
+        [byId ? input.challengeId : sha256(input.requestKey)],
       );
       if (!challenge || challenge.consumed_at || challenge.verified_at) return { kind: 'invalid' as const };
       if (challenge.expires_at.getTime() < Date.now()) return { kind: 'expired' as const };
       if (challenge.attempts >= OTP.maxAttempts) return { kind: 'attempts' as const };
-      if (!safeEqual(codeHash(input.challengeId, input.code), challenge.code_hash)) {
-        await tx.run('UPDATE otp_challenges SET attempts = attempts + 1 WHERE id = ?', [input.challengeId]);
+      if (!safeEqual(codeHash(challenge.id, input.code), challenge.code_hash)) {
+        await tx.run('UPDATE otp_challenges SET attempts = attempts + 1 WHERE id = ?', [challenge.id]);
         return { kind: 'wrong' as const, left: OTP.maxAttempts - challenge.attempts - 1 };
       }
       const account = await tx.one<AccountRow>('SELECT id, email, status, role FROM accounts WHERE email = ?', [challenge.email]);
       if (account?.status === 'active') {
-        await tx.run('UPDATE otp_challenges SET verified_at = CURRENT_TIMESTAMP(3), consumed_at = CURRENT_TIMESTAMP(3) WHERE id = ?', [input.challengeId]);
+        await tx.run('UPDATE otp_challenges SET verified_at = CURRENT_TIMESTAMP(3), consumed_at = CURRENT_TIMESTAMP(3) WHERE id = ?', [challenge.id]);
         // An email added to OWNER_EMAILS after sign-up becomes the owner at its next sign-in.
         if (ownerEmails.has(account.email) && account.role !== 'owner') {
           await tx.run("UPDATE accounts SET role = 'owner' WHERE id = ?", [account.id]);
@@ -107,7 +109,7 @@ export function registerRoutes(app: FastifyInstance, db: Database, ids: Snowflak
       const signupToken = randomToken(32);
       await tx.run('UPDATE otp_challenges SET verified_at = CURRENT_TIMESTAMP(3), signup_token_hash = ? WHERE id = ?', [
         sha256(signupToken),
-        input.challengeId,
+        challenge.id,
       ]);
       return { kind: 'signup' as const, signupToken, email: challenge.email };
     });
@@ -191,14 +193,14 @@ export function registerRoutes(app: FastifyInstance, db: Database, ids: Snowflak
   // ───────── Session ─────────
 
   app.post('/auth/refresh', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (request, reply) => {
-    const fromBody = z.object({ refreshToken: z.string().min(20).max(256) }).safeParse(request.body ?? {});
+    const fromBody = z.object({ refreshToken: z.string().min(20).max(256), attempt: z.string().regex(/^[a-f0-9]{32}$/).optional() }).safeParse(request.body ?? {});
     const token = isWeb(request) ? request.cookies[REFRESH_COOKIE] : fromBody.success ? fromBody.data.refreshToken : undefined;
     if (!token) fail('unauthorized', 'Please sign in.');
     try {
-      const result = await rotate(db, ids, token!);
+      const result = await rotate(db, ids, token!, fromBody.success ? fromBody.data.attempt : undefined);
       return { tokens: deliverTokens(request, reply, result.tokens), deviceId: result.deviceId };
     } catch (error) {
-      if (isWeb(request)) reply.clearCookie(REFRESH_COOKIE, { path: cookiePath });
+      if (isWeb(request) && error instanceof AppError && ['unauthorized', 'session_revoked', 'forbidden'].includes(error.code)) reply.clearCookie(REFRESH_COOKIE, { path: cookiePath });
       throw error;
     }
   });
@@ -263,6 +265,11 @@ export function registerRoutes(app: FastifyInstance, db: Database, ids: Snowflak
   });
 
   // ───────── Internal (service-to-service) ─────────
+
+  app.post('/internal/sessions/check', { preHandler: guards.requireInternal, config: { rateLimit: false } }, async (request) => {
+    const auth = z.object({ userId: contract.id, deviceId: contract.id, sessionId: contract.id }).parse(request.body);
+    return { active: await sessionIsActive(db, auth) };
+  });
 
   app.post('/internal/device-keys', { preHandler: guards.requireInternal }, async (request) => {
     const { userIds } = z.object({ userIds: z.array(contract.id).min(1).max(1024) }).parse(request.body);

@@ -5,7 +5,7 @@ import { motion } from 'motion/react';
 import clsx from 'clsx';
 import { Camera, Globe, Laptop, Loader2, LogOut, Monitor, Moon, Palette, Shield, Smartphone, Sun, Trash2, User } from 'lucide-react';
 import { uploadPhoto } from '@/lib/chat/media';
-import { historyTransferCode, transferHistory } from '@/lib/chat/history';
+import { historyApprovalCode, historyTransferCode, transferHistory } from '@/lib/chat/history';
 import { about as aboutRule, displayName as displayNameRule, type DeviceInfo, type PrivacyAudience, type PrivacyKey } from '@talkie/contracts';
 import { Avatar, Button, Segmented, Switch, TextField } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
@@ -19,6 +19,9 @@ type Section = 'profile' | 'privacy' | 'devices' | 'appearance';
 export default function SettingsPage() {
   const { t } = useI18n();
   const [section, setSection] = useState<Section>('profile');
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('section') === 'devices') setSection('devices');
+  }, []);
   const sections: Array<{ id: Section; label: string; icon: typeof User }> = [
     { id: 'profile', label: t.settings.profile, icon: User },
     { id: 'privacy', label: t.settings.privacy, icon: Shield },
@@ -251,6 +254,7 @@ function DevicesSection() {
 
   const remove = async (device: DeviceInfo) => {
     if (device.current) return void signOut();
+    if (!window.confirm(locale === 'bn' ? `${device.name} থেকে সাইন আউট করবেন?` : `Sign out ${device.name}?`)) return;
     try {
       await api(`/auth/devices/${device.id}`, { method: 'DELETE' });
       setDevices((list) => list?.filter((d) => d.id !== device.id) ?? null);
@@ -263,7 +267,7 @@ function DevicesSection() {
 
   if (!devices) return <Skeleton rows={3} />;
   return (
-    <Panel title={t.settings.devices}>
+    <Panel title={t.settings.devices} description={locale === 'bn' ? 'একসঙ্গে সর্বোচ্চ তিনটি ডিভাইস সক্রিয় থাকবে।' : 'Up to three devices can stay signed in.'}>
       <ul className="space-y-3">
         {devices.map((device) => {
           const Icon = device.platform === 'web' || device.platform === 'desktop' ? Monitor : Smartphone;
@@ -277,7 +281,8 @@ function DevicesSection() {
                   {device.name}
                   {device.current && <span className="ml-2 rounded-full bg-success-soft px-2 py-0.5 text-xs font-bold text-success">{t.settings.thisDevice}</span>}
                 </p>
-                <p className="text-sm text-subtle">{t.settings.lastActive}: {when(device.lastActiveAt)}</p>
+                <p className="text-sm text-subtle">{device.platform === 'web' ? 'Web' : device.platform === 'android' ? 'Android' : device.platform === 'ios' ? 'iOS' : 'Desktop'} · {t.settings.lastActive} {when(device.lastActiveAt)}</p>
+                <p className="text-sm text-subtle">{locale === 'bn' ? 'সংযুক্ত' : 'Linked'} {when(device.createdAt)}</p>
               </div>
               <Button size="sm" variant="ghost" onClick={() => void remove(device)} leading={device.current ? <LogOut className="size-4" aria-hidden /> : <Trash2 className="size-4" aria-hidden />} className="hover:!bg-danger-soft hover:!text-danger">
                 {t.settings.signOutDevice}
@@ -295,7 +300,33 @@ function HistorySection() {
   const toast = useToast();
   const [transferCode, setTransferCode] = useState('');
   const [transferring, setTransferring] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [incoming, setIncoming] = useState<Array<{ deviceId: string; identityKey: string; name: string }>>([]);
   const historyText = (bn: string, en: string) => locale === 'bn' ? bn : en;
+  const ownKey = historyTransferCode()?.split('.')[1];
+
+  const loadRequests = async () => {
+    const [requests, devices] = await Promise.all([
+      api<{ pending: boolean; incoming: Array<{ deviceId: string; identityKey: string }> }>('/chat/history/requests'),
+      api<{ devices: DeviceInfo[] }>('/auth/devices'),
+    ]);
+    setPending(requests.pending);
+    setIncoming(requests.incoming.flatMap((request) => {
+      const device = devices.devices.find((listed) => listed.id === request.deviceId);
+      return device ? [{ ...request, name: device.name }] : [];
+    }));
+  };
+
+  useEffect(() => { void loadRequests().catch(() => {}); }, []);
+
+  const requestHistory = async () => {
+    try {
+      await api('/chat/history/requests', { method: 'POST', body: {} });
+      setPending(true);
+    } catch (error) {
+      toast(error instanceof ApiError ? error.message : t.errors.generic, 'error');
+    }
+  };
 
   const copyTransferCode = async () => {
     try {
@@ -308,13 +339,14 @@ function HistorySection() {
     }
   };
 
-  const sendHistory = async () => {
+  const sendHistory = async (code = transferCode) => {
     setTransferring(true);
     try {
-      const { added, unreadable } = await transferHistory(transferCode);
+      const { added, unreadable } = await transferHistory(code);
       setTransferCode('');
       const count = new Intl.NumberFormat(locale);
       toast(historyText(`${count.format(added)}টি বার্তার চাবি পাঠানো হয়েছে। ${count.format(unreadable)}টি খোলা যায়নি।`, `Transferred ${count.format(added)} message keys. ${count.format(unreadable)} could not be opened.`));
+      void loadRequests().catch(() => {});
     } catch {
       toast(historyText('পাঠানো যায়নি। অন্য ডিভাইসের কোড যাচাই করে আবার চেষ্টা করুন।', 'Transfer failed. Check the code from your other device and try again.'), 'error');
     } finally {
@@ -324,7 +356,27 @@ function HistorySection() {
 
   return (
     <Panel title={historyText('এনক্রিপ্ট করা চ্যাট ইতিহাস', 'Encrypted chat history')}>
-      <div className="space-y-3">
+      <div className="space-y-3">
+        <p className="text-sm text-muted">{historyText('নতুন ডিভাইসে অনুরোধ পাঠিয়ে আপনার চেনা পুরোনো ডিভাইস থেকে অনুমোদন দিন।', 'Request history here, then approve it from a trusted older device.')}</p>
+        {pending && ownKey && <p className="text-sm text-muted">{historyText('এই ডিভাইসের যাচাই কোড', 'This device’s verification code')} <code className="font-bold text-text">{historyApprovalCode(ownKey)}</code></p>}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" disabled={pending || transferring} onClick={() => void requestHistory()}>{pending ? historyText('অনুমোদনের অপেক্ষায়', 'Awaiting approval') : historyText('চ্যাট ইতিহাস ফিরিয়ে আনুন', 'Restore chat history')}</Button>
+          <Button size="sm" variant="ghost" onClick={() => void loadRequests().catch(() => toast(t.errors.generic, 'error'))}>{historyText('অনুরোধ দেখুন', 'Refresh requests')}</Button>
+        </div>
+        {incoming.map((request) => (
+          <div key={request.deviceId} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border p-3">
+            <span className="font-semibold">{request.name}</span>
+            <Button size="sm" variant="ghost" disabled={transferring} onClick={() => {
+              const code = window.prompt(historyText(`${request.name} ডিভাইসে দেখানো যাচাই কোডটি দিন।`, `Enter the verification code shown on ${request.name}.`));
+              if (code == null) return;
+              if (code.replace(/\s/g, '') !== historyApprovalCode(request.identityKey)) {
+                toast(historyText('যাচাই কোড মিলছে না।', 'The verification code does not match.'), 'error');
+                return;
+              }
+              void sendHistory(`${request.deviceId}.${request.identityKey}`);
+            }}>{historyText('অনুমোদন দিন', 'Approve')}</Button>
+          </div>
+        ))}
         <Button size="sm" variant="ghost" onClick={() => void copyTransferCode()}>{historyText('এই ডিভাইসের কোড কপি করুন', 'Copy this device’s code')}</Button>
         <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); if (!transferring && transferCode.trim()) void sendHistory(); }}>
           <TextField label={historyText('অন্য ডিভাইসের কোড', 'Other device’s code')} value={transferCode} onChange={(event) => setTransferCode(event.target.value)} autoCapitalize="none" spellCheck={false} disabled={transferring} />

@@ -61,6 +61,10 @@ class TalkieApp extends StatelessWidget {
       locale: Locale(prefs.locale),
       home: switch (session.status) {
         SessionStatus.loading => const _Splash(),
+        SessionStatus.reconnecting => Scaffold(body: Center(child: FilledButton(
+          onPressed: session.restore,
+          child: Text(prefs.t('আবার সংযোগ করুন', 'Reconnect')),
+        ))),
         SessionStatus.signedOut => const SignInScreen(),
         SessionStatus.signedIn => const HomeScreen(),
       },

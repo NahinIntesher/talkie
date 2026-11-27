@@ -7,7 +7,7 @@ export const USERNAME_MAX = 32;
 export const DISPLAY_NAME_MAX = 64;
 export const ABOUT_MAX = 140;
 export const OTP_LENGTH = 6;
-export const MAX_LINKED_DEVICES = 5;
+export const MAX_LINKED_DEVICES = 3;
 
 export const id = z.string().regex(/^[1-9]\d{0,19}$/, 'Invalid id');
 
@@ -58,8 +58,12 @@ export const device = z.object({
 
 // ───────── Auth API ─────────
 
-export const otpRequest = z.object({ email, locale: locale.default('bn') });
-export const otpVerify = z.object({ challengeId: id, code: otpCode, device });
+const otpRequestKey = z.string().regex(/^[A-Za-z0-9_-]{22}$/);
+export const otpRequest = z.object({ email, locale: locale.default('bn'), requestKey: otpRequestKey.optional() });
+export const otpVerify = z.union([
+  z.object({ challengeId: id, code: otpCode, device }),
+  z.object({ requestKey: otpRequestKey, code: otpCode, device }),
+]);
 export const signupComplete = z.object({ signupToken: z.string().min(20).max(512), username, displayName, device });
 export const usernameCheck = z.object({ username });
 
@@ -67,6 +71,7 @@ export interface OtpRequested {
   challengeId: string;
   expiresAt: string;
   resendAfterSeconds: number;
+  delivery?: 'sent' | 'uncertain';
 }
 
 export interface SessionTokens {
@@ -152,7 +157,7 @@ export const clientMessageId = z.string().regex(/^[0-9A-Za-z]{26}$/, 'Invalid cl
 export const sealedKeys = z
   .array(z.object({ deviceId: id, sealedKey: b64(200) }))
   .min(1)
-  .max(GROUP_MAX_MEMBERS * MAX_LINKED_DEVICES);
+  .max(GROUP_MAX_MEMBERS * 5); // Allow cached pre-upgrade device lists. Services filter revoked devices.
 
 export const sendMessage = z.object({
   clientMessageId,

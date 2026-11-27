@@ -37,6 +37,9 @@ const mailer = env.SMTP_HOST
       auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD ?? '' } : undefined,
       pool: true,
       maxConnections: 5,
+      connectionTimeout: 5_000,
+      greetingTimeout: 5_000,
+      socketTimeout: 14_000,
     })
   : null;
 
@@ -46,21 +49,17 @@ service.app.post('/internal/email/otp', { preHandler: guards.requireInternal }, 
   if (!mailer) throw new AppError('unavailable', 'Email delivery is not configured.');
   const message = otpEmail(input.code, input.locale);
   const id = ids.next();
+  const audit = (status: 'sent' | 'failed', providerId: string | null, error: string | null) => {
+    void db.run('INSERT INTO email_deliveries (id, recipient, template, status, provider_message_id, error) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, input.to, 'otp', status, providerId, error]).catch((err) => request.log.warn({ err }, 'could not record OTP email delivery'));
+  };
   try {
     const sent = await mailer.sendMail({ from: env.MAIL_FROM, to: input.to, subject: message.subject, html: message.html, text: message.text });
-    await db.run("INSERT INTO email_deliveries (id, recipient, template, status, provider_message_id) VALUES (?, ?, 'otp', 'sent', ?)", [
-      id,
-      input.to,
-      sent.messageId ?? null,
-    ]);
+    audit('sent', sent.messageId ?? null, null);
     return { ok: true };
   } catch (error) {
     request.log.error({ err: error }, 'otp email failed');
-    await db.run("INSERT INTO email_deliveries (id, recipient, template, status, error) VALUES (?, ?, 'otp', 'failed', ?)", [
-      id,
-      input.to,
-      String((error as Error).message).slice(0, 500),
-    ]);
+    audit('failed', null, String((error as Error).message).slice(0, 500));
     throw new AppError('unavailable', 'We could not send the email. Please try again.');
   }
 });

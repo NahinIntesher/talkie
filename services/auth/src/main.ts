@@ -6,13 +6,20 @@ import { createVerifier, installAuth } from '@talkie/auth-kit';
 import { env } from './config.ts';
 import { registerRoutes } from './routes.ts';
 import { registerAdminRoutes } from './admin.ts';
+import { enforceDeviceLimit, sessionIsActive } from './sessions.ts';
 
 const db = connectDatabase(env, env.DB_NAME);
 const service = await createService({ name: 'auth', env, ready: () => db.ping(), rateLimitPerMinute: 120 });
 const ids = new Snowflake(env.WORKER_ID);
+await enforceDeviceLimit(db, ids);
 
 await service.app.register(cookie);
-const guards = installAuth(service.app, await createVerifier(env), env);
+const guards = installAuth(
+  service.app,
+  await createVerifier(env, undefined, (auth) => sessionIsActive(db, auth)),
+  env,
+  new Set(['/auth/refresh', '/auth/otp/request', '/auth/otp/verify', '/auth/signup']),
+);
 registerRoutes(service.app, db, ids, guards);
 registerAdminRoutes(service.app, db, ids, guards);
 

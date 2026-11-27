@@ -25,7 +25,6 @@ class Api {
   final http.Client _client = http.Client();
   String? accessToken;
   Future<bool> Function()? refresh;
-  void Function()? onSignedOut;
 
   Map<String, String> get _headers => {
         'x-talkie-client': 'mobile',
@@ -55,10 +54,14 @@ class Api {
     }
     if (response.statusCode == 401 && !retried && !path.startsWith('/auth/otp') && !path.startsWith('/auth/refresh') && refresh != null) {
       if (await refresh!()) return _send(method, path, body, true);
-      onSignedOut?.call();
     }
     final text = utf8.decode(response.bodyBytes);
-    final data = text.isEmpty ? <String, dynamic>{} : jsonDecode(text);
+    final dynamic data;
+    try {
+      data = text.isEmpty ? <String, dynamic>{} : jsonDecode(text);
+    } on FormatException {
+      throw ApiError(response.statusCode, 'invalid_response', 'Talkie could not read the server response. Try again.');
+    }
     if (response.statusCode >= 400) {
       final error = (data is Map ? data['error'] : null) as Map<String, dynamic>? ?? {};
       throw ApiError(response.statusCode, error['code'] as String? ?? 'internal', error['message'] as String? ?? 'Error', error['details'] as Map<String, dynamic>?);

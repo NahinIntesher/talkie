@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { caller, type AuthContext } from '@talkie/auth-kit';
 import { fail } from '@talkie/core';
 import { id, publicKey } from '@talkie/contracts';
+import { writeOutbox } from '@talkie/db';
 import type { Context } from './context.ts';
 
 const BATCH_SIZE = 100;
@@ -26,7 +27,7 @@ const ELIGIBLE = `FROM message_keys source
     AND (cm.left_at IS NULL OR m.created_at <= cm.left_at)
     AND NOT EXISTS (SELECT 1 FROM message_hidden h WHERE h.user_id = cm.user_id AND h.message_id = m.id)`;
 
-export function registerHistoryRoutes(app: FastifyInstance, { db, devices, guards }: Context) {
+export function registerHistoryRoutes(app: FastifyInstance, { db, devices, guards, ids, relay }: Context) {
   const auth = { preHandler: guards.requireAuth };
 
   const verifyDevices = async (me: AuthContext, destination: z.infer<typeof target>) => {
@@ -35,6 +36,53 @@ export function registerHistoryRoutes(app: FastifyInstance, { db, devices, guard
         !owned.some((d) => d.deviceId === destination.deviceId && d.identityKey === destination.identityKey))
       fail('forbidden', 'History can only be transferred between your active devices.');
   };
+
+  app.post('/chat/history/requests', auth, async (request) => {
+    const me = caller(request);
+    const owned = await devices.forUsers([me.userId], true);
+    const current = owned.find((d) => d.deviceId === me.deviceId);
+    if (!current || !owned.some((d) => d.deviceId !== me.deviceId)) fail('conflict', 'Keep another device signed in to approve history recovery.');
+    await db.run(
+      `INSERT INTO history_requests (user_id, device_id, identity_key) VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE identity_key = VALUES(identity_key), requested_at = CURRENT_TIMESTAMP(3), completed_at = NULL`,
+      [me.userId, me.deviceId, current!.identityKey],
+    );
+    return { ok: true };
+  });
+
+  app.get('/chat/history/requests', auth, async (request) => {
+    const me = caller(request);
+    const owned = await devices.forUsers([me.userId], true);
+    const rows = await db.query<{ device_id: string; identity_key: string; requested_at: Date; completed_at: Date | null }>(
+      'SELECT device_id, identity_key, requested_at, completed_at FROM history_requests WHERE user_id = ? AND requested_at > CURRENT_TIMESTAMP(3) - INTERVAL 1 DAY',
+      [me.userId],
+    );
+    const requests = rows.filter((r) => owned.some((d) => d.deviceId === r.device_id && d.identityKey === r.identity_key));
+    return {
+      incoming: requests.filter((r) => r.device_id !== me.deviceId && !r.completed_at).map((r) => ({ deviceId: r.device_id, identityKey: r.identity_key, requestedAt: r.requested_at.toISOString() })),
+      pending: requests.some((r) => r.device_id === me.deviceId && !r.completed_at),
+    };
+  });
+
+  app.post('/chat/history/requests/complete', auth, async (request) => {
+    const me = caller(request);
+    const destination = target.extend({ transferred: z.boolean().default(false) }).parse(request.body);
+    await verifyDevices(me, destination);
+    const completed = await db.tx(async (tx) => {
+      if (!(await tx.one('SELECT 1 FROM message_keys WHERE device_id = ? AND wrap_device_id = ? LIMIT 1', [destination.deviceId, me.deviceId]))) return false;
+      const pending = await tx.run(
+        `UPDATE history_requests SET completed_at = CURRENT_TIMESTAMP(3)
+         WHERE user_id = ? AND device_id = ? AND identity_key = ? AND completed_at IS NULL`,
+        [me.userId, destination.deviceId, destination.identityKey],
+      );
+      if (pending.affectedRows > 0 || destination.transferred) {
+        await writeOutbox(tx, { id: ids.next(), type: 'history.synced', key: me.userId, payload: { userId: me.userId, deviceId: destination.deviceId } });
+      }
+      return pending.affectedRows > 0;
+    });
+    relay.kick();
+    return { completed };
+  });
 
   app.get('/chat/history/transfer', auth, async (request) => {
     const me = caller(request);

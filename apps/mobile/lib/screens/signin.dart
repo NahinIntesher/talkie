@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../core/api.dart';
+import '../core/crypto.dart';
 import '../core/prefs.dart';
 import '../core/session.dart';
 import '../ui/theme.dart';
@@ -21,6 +24,8 @@ class SignInScreen extends StatefulWidget {
 }
 
 class _SignInScreenState extends State<SignInScreen> {
+  static const _storage = FlutterSecureStorage();
+  static const _pendingCode = 'talkie.otp.pending';
   _Step step = _Step.email;
   final email = TextEditingController();
   final code = TextEditingController();
@@ -30,6 +35,7 @@ class _SignInScreenState extends State<SignInScreen> {
   bool busy = false;
   String? error;
   String? challengeId;
+  String? requestKey;
   String? signupToken;
   int resendAfter = 0;
   DateTime sentAt = DateTime.now();
@@ -40,6 +46,40 @@ class _SignInScreenState extends State<SignInScreen> {
 
   Prefs get prefs => context.read<Prefs>();
   String t(String bn, String en) => prefs.t(bn, en);
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreCode();
+  }
+
+  Future<void> _restoreCode() async {
+    try {
+      final saved = await _storage.read(key: _pendingCode);
+      if (!mounted || saved == null || busy || email.text.isNotEmpty || step != _Step.email) return;
+      final data = jsonDecode(saved) as Map<String, dynamic>;
+      final sent = DateTime.parse(data['sentAt'] as String);
+      if (DateTime.now().difference(sent) >= const Duration(minutes: 10)) {
+        await _forgetCode();
+        return;
+      }
+      email.text = data['email'] as String;
+      _awaitCode(data['requestKey'] as String, data['challengeId'] as String?, data['cooldown'] as int, data['uncertain'] == true, sent: sent);
+    } catch (_) {}
+  }
+
+  Future<void> _rememberCode(String email, String attempt, String? id, int cooldown, bool uncertain, DateTime sent) async {
+    try {
+      await _storage.write(key: _pendingCode, value: jsonEncode({
+        'email': email, 'requestKey': attempt, 'challengeId': id, 'cooldown': cooldown,
+        'uncertain': uncertain, 'sentAt': sent.toIso8601String(),
+      }));
+    } catch (_) {}
+  }
+
+  Future<void> _forgetCode() async {
+    try { await _storage.delete(key: _pendingCode); } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -58,6 +98,7 @@ class _SignInScreenState extends State<SignInScreen> {
   }
 
   Future<void> requestCode() async {
+    if (busy) return;
     final value = email.text.trim().toLowerCase();
     if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value)) {
       setState(() => error = t('সঠিক ইমেইল দিন', 'Enter a valid email'));
@@ -67,21 +108,56 @@ class _SignInScreenState extends State<SignInScreen> {
       busy = true;
       error = null;
     });
+    final attempt = Crypto.b64(Crypto.instance.random(16));
+    final sent = DateTime.now();
     try {
-      final result = await api.post('/auth/otp/request', {'email': value, 'locale': prefs.locale});
-      challengeId = result['challengeId'] as String;
-      resendAfter = (result['resendAfterSeconds'] as num).toInt();
-      sentAt = DateTime.now();
-      code.clear();
-      ticker?.cancel();
-      ticker = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
-      setState(() => step = _Step.code);
-      Future.delayed(const Duration(milliseconds: 350), () => codeFocus.requestFocus());
+      await _rememberCode(value, attempt, null, 60, true, sent);
+      final result = await api.post('/auth/otp/request', {'email': value, 'locale': prefs.locale, 'requestKey': attempt});
+      final id = result['challengeId'] as String;
+      final cooldown = (result['resendAfterSeconds'] as num).toInt();
+      final uncertain = result['delivery'] == 'uncertain';
+      await _rememberCode(value, attempt, id, cooldown, uncertain, sent);
+      _awaitCode(attempt, id, cooldown, uncertain, sent: sent);
+    } on ApiError catch (err) {
+      if (err.status == 0 || err.status >= 500) {
+        _awaitCode(attempt, null, 60, true, sent: sent);
+      } else if (mounted) {
+        await _forgetCode();
+        if (!mounted) return;
+        setState(() => error = _message(err));
+      }
     } catch (err) {
-      setState(() => error = _message(err));
+      if (mounted) setState(() => error = _message(err));
     } finally {
       if (mounted) setState(() => busy = false);
     }
+  }
+
+  void _awaitCode(String attempt, String? id, int cooldown, bool uncertain, {required DateTime sent}) {
+    if (!mounted) return;
+    requestKey = attempt;
+    challengeId = id;
+    resendAfter = cooldown;
+    sentAt = sent;
+    code.clear();
+    ticker?.cancel();
+    ticker = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
+    setState(() {
+      step = _Step.code;
+      error = uncertain ? t('মেইল পৌঁছেছে কি না নিশ্চিত হওয়া যায়নি। কোড পেলে এখানে দিন, না পেলে আবার পাঠান।', 'Delivery could not be confirmed. Enter the code if it arrives, or resend it.') : null;
+    });
+  }
+
+  Future<void> pasteCode() async {
+    final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text?.trim() ?? '';
+    if (!mounted || step != _Step.code || busy) return;
+    final value = text.replaceAll(RegExp(r'[\s-]'), '');
+    if (!RegExp(r'^\d{6}$').hasMatch(value)) {
+      setState(() => error = t('আগে ছয় ডিজিটের কোডটি কপি করুন।', 'Copy the six-digit code first.'));
+      return;
+    }
+    code.value = TextEditingValue(text: value, selection: TextSelection.collapsed(offset: value.length));
+    await verify();
   }
 
   Future<void> verify() async {
@@ -92,7 +168,12 @@ class _SignInScreenState extends State<SignInScreen> {
       error = null;
     });
     try {
-      final result = await api.post('/auth/otp/verify', {'challengeId': challengeId, 'code': code.text, 'device': session.deviceInfo()}) as Map<String, dynamic>;
+      final result = await api.post('/auth/otp/verify', {
+        if (challengeId != null) 'challengeId': challengeId else 'requestKey': requestKey,
+        'code': code.text, 'device': await session.deviceInfo(),
+      }) as Map<String, dynamic>;
+      await _forgetCode();
+      if (!mounted) return;
       if (result['status'] == 'signed_in') {
         await session.signedIn(result);
         return;
@@ -100,7 +181,8 @@ class _SignInScreenState extends State<SignInScreen> {
       signupToken = result['signupToken'] as String;
       setState(() => step = _Step.profile);
     } catch (err) {
-      code.clear();
+      if (!mounted) return;
+      if (err is ApiError && err.code.startsWith('otp_')) code.clear();
       final left = err is ApiError ? (err.details?['attemptsLeft']) : null;
       setState(() => error = left != null ? '${_message(err)} ($left)' : _message(err));
       HapticFeedback.heavyImpact();
@@ -162,7 +244,7 @@ class _SignInScreenState extends State<SignInScreen> {
         'username': username.text.trim().toLowerCase(),
         'displayName': name.text.trim(),
         'locale': prefs.locale,
-        'device': session.deviceInfo(),
+        'device': await session.deviceInfo(),
       }) as Map<String, dynamic>;
       if (result['status'] == 'signed_in') await session.signedIn(result);
     } catch (err) {
@@ -262,10 +344,13 @@ class _SignInScreenState extends State<SignInScreen> {
         final left = (resendAfter - DateTime.now().difference(sentAt).inSeconds).clamp(0, 9999);
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           TextButton.icon(
-            onPressed: () => setState(() {
-              step = _Step.email;
-              error = null;
-            }),
+            onPressed: busy ? null : () {
+              _forgetCode();
+              setState(() {
+                step = _Step.email;
+                error = null;
+              });
+            },
             style: TextButton.styleFrom(foregroundColor: p.muted, padding: const EdgeInsets.symmetric(horizontal: 8)),
             icon: const Icon(LucideIcons.arrowLeft, size: 18),
             label: Text(email.text.trim().toLowerCase(), style: const TextStyle(fontWeight: FontWeight.w700)),
@@ -274,6 +359,8 @@ class _SignInScreenState extends State<SignInScreen> {
           Text(t('কোডটি লিখুন', 'Enter the code'), style: title),
           const SizedBox(height: 28),
           _OtpField(controller: code, focus: codeFocus, enabled: !busy, invalid: error != null, onComplete: verify, onChanged: () => setState(() => error = null)),
+          TextButton.icon(onPressed: busy ? null : pasteCode, icon: const Icon(LucideIcons.clipboardPaste, size: 18), label: Text(t('কোড পেস্ট করুন', 'Paste code'))),
+          if (code.text.length == 6 && !busy) TextButton(onPressed: verify, child: Text(t('কোড যাচাই করুন', 'Verify code'))),
           SizedBox(height: 28, child: busy ? Padding(padding: const EdgeInsets.only(top: 12), child: LinearProgressIndicator(borderRadius: BorderRadius.circular(9), color: p.brand)) : null),
           _error(),
           const SizedBox(height: 8),
@@ -359,7 +446,7 @@ class _Progress extends StatelessWidget {
   }
 }
 
-/// Six boxes over one hidden field, so paste and SMS-style autofill both work.
+/// One real text input over the six visual slots. Taps and long presses reach the platform editor.
 class _OtpField extends StatelessWidget {
   const _OtpField({required this.controller, required this.focus, required this.enabled, required this.invalid, required this.onComplete, required this.onChanged});
   final TextEditingController controller;
@@ -373,24 +460,7 @@ class _OtpField extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     return Stack(children: [
-      Opacity(
-        opacity: 0,
-        child: TextField(
-          controller: controller,
-          focusNode: focus,
-          enabled: enabled,
-          keyboardType: TextInputType.number,
-          autofillHints: const [AutofillHints.oneTimeCode],
-          maxLength: 6,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          onChanged: (v) {
-            onChanged();
-            if (v.length == 6) onComplete();
-          },
-        ),
-      ),
-      GestureDetector(
-        onTap: () => focus.requestFocus(),
+      ExcludeSemantics(
         child: ListenableBuilder(
           listenable: Listenable.merge([controller, focus]),
           builder: (context, _) {
@@ -414,6 +484,28 @@ class _OtpField extends StatelessWidget {
                 );
               }),
             );
+          },
+        ),
+      ),
+      Positioned.fill(
+        child: TextField(
+          controller: controller,
+          focusNode: focus,
+          enabled: enabled,
+          autofocus: true,
+          showCursor: false,
+          style: const TextStyle(color: Colors.transparent),
+          keyboardType: TextInputType.number,
+          autofillHints: const [AutofillHints.oneTimeCode],
+          maxLength: 6,
+          decoration: const InputDecoration(
+            filled: false, border: InputBorder.none, enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none, disabledBorder: InputBorder.none, counterText: '',
+          ),
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          onChanged: (v) {
+            onChanged();
+            if (v.length == 6) onComplete();
           },
         ),
       ),

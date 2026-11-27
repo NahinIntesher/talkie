@@ -53,6 +53,7 @@ export const baseEnvSchema = z.object({
    */
   DB_SHARED_NAME: z.string().regex(/^[A-Za-z0-9_]*$/).default(''),
   DB_POOL_SIZE: z.coerce.number().int().positive().default(10),
+  AUTH_URL: z.url().default('http://127.0.0.1:4101'),
   DB_SSL: bool.default(false),
   REDIS_URL: z.string().optional(),
   /**

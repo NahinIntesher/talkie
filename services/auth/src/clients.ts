@@ -5,10 +5,10 @@ import { env } from './config.ts';
 
 const headers = { 'x-internal-token': env.INTERNAL_TOKEN, 'content-type': 'application/json' };
 
-async function call<T>(url: string, init: RequestInit): Promise<T> {
+async function call<T>(url: string, init: RequestInit, timeout = 5_000): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(url, { ...init, headers, signal: AbortSignal.timeout(5_000) });
+    response = await fetch(url, { ...init, headers, signal: AbortSignal.timeout(timeout) });
   } catch {
     throw new AppError('unavailable', 'Talkie is busy right now. Please try again in a moment.');
   }
@@ -34,15 +34,17 @@ export const usersClient = {
  * Sends the sign-in code through the notification service. In development, when email is not configured,
  * the code is written to this service's log instead so sign-in still works locally.
  */
-export async function sendOtpEmail(log: FastifyBaseLogger, to: string, code: string, locale: Locale): Promise<void> {
+export async function sendOtpEmail(log: FastifyBaseLogger, to: string, code: string, locale: Locale): Promise<'sent' | 'uncertain'> {
   try {
-    await call(`${env.NOTIFY_URL}/internal/email/otp`, { method: 'POST', body: JSON.stringify({ to, code, locale }) });
+    await call(`${env.NOTIFY_URL}/internal/email/otp`, { method: 'POST', body: JSON.stringify({ to, code, locale }) }, 18_000);
   } catch (error) {
     if (env.NODE_ENV !== 'production' && env.DEV_LOG_OTP) {
       log.warn({ to }, `email not delivered; development sign-in code for ${to}: ${code}`);
-      return;
+      return 'sent';
     }
-    throw error;
+    log.warn({ err: error }, 'could not confirm OTP delivery');
+    return 'uncertain';
   }
   if (env.NODE_ENV !== 'production' && env.DEV_LOG_OTP) log.info(`development sign-in code for ${to}: ${code}`);
+  return 'sent';
 }
