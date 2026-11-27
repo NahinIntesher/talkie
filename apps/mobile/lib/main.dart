@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import 'call/call_overlay.dart';
 import 'call/calls.dart';
+import 'meet/meet_screen.dart';
 import 'chat/chat.dart';
 import 'status/status.dart';
 import 'core/crypto.dart';
@@ -36,6 +37,7 @@ Future<void> main() async {
 
 class TalkieApp extends StatelessWidget {
   const TalkieApp({super.key});
+  static final navigation = GlobalKey<NavigatorState>();
 
   @override
   Widget build(BuildContext context) {
@@ -43,9 +45,10 @@ class TalkieApp extends StatelessWidget {
     final session = context.watch<Session>();
     final signedIn = session.status == SessionStatus.signedIn;
     final app = MaterialApp(
+      navigatorKey: signedIn ? navigation : null,
       builder: (context, child) {
         // Quicksand looks larger than Baloo Da 2 at the same size: English uses slightly smaller text (as on the web).
-        final content = signedIn ? CallOverlay(child: child!) : child!;
+        final content = signedIn ? CallOverlay(navigator: navigation, child: child!) : child!;
         if (prefs.locale != 'en') return content;
         final media = MediaQuery.of(context);
         return MediaQuery(
@@ -76,7 +79,8 @@ class TalkieApp extends StatelessWidget {
       create: (_) => Chat(session),
       child: MultiProvider(
         providers: [
-          ChangeNotifierProvider<Calls>(create: (context) => Calls(context.read<Chat>())),
+          ChangeNotifierProvider<MeetingHub>(create: (context) => MeetingHub(context.read<Chat>())),
+          ChangeNotifierProvider<Calls>(create: (context) => Calls(context.read<Chat>(), inMeeting: () => context.read<MeetingHub>().current?.room != null)),
           ChangeNotifierProvider<Statuses>(create: (context) => Statuses(context.read<Chat>())),
         ],
         child: app,

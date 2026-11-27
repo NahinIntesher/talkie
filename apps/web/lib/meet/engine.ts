@@ -6,6 +6,7 @@ import type { JoinResult, MediaGrant, MeetingControls, MeetingInfo, MeetingParti
 import { api } from '../api';
 import { connectRealtime, renewRealtimeToken } from '../realtime';
 import { loadProfiles } from '../chat/engine';
+import { useCall } from '../call/engine';
 
 export type MeetPhase = 'loading' | 'lobby' | 'joining' | 'waiting' | 'in' | 'ended' | 'denied' | 'removed' | 'missing';
 export type Layout = 'auto' | 'tiled' | 'spotlight' | 'sidebar';
@@ -118,11 +119,12 @@ export async function loadMeeting(code: string) {
   set({ code, ...initial });
   try {
     const { meeting } = await api<{ meeting: MeetingInfo }>(`/meet/meetings/${code}`);
+    if (get().code !== code) return;
     set({ meeting, phase: meeting.status === 'cancelled' ? 'ended' : 'lobby' });
     void loadProfiles([meeting.hostId]);
     bind();
   } catch {
-    set({ phase: 'missing' });
+    if (get().code === code) set({ phase: 'missing' });
   }
 }
 
@@ -130,9 +132,13 @@ let preview: { video?: MediaStreamTrack; audio?: MediaStreamTrack } = {};
 export const setPreview = (tracks: { video?: MediaStreamTrack; audio?: MediaStreamTrack }) => (preview = tracks);
 
 export async function join(options: { mic: boolean; cam: boolean; blur: boolean; videoDevice?: string; audioDevice?: string }) {
+  if (get().phase !== 'lobby') return;
+  if (useCall.getState().session) { set({ error: 'Leave your call before joining a meeting.' }); return; }
+  const code = get().code;
   set({ phase: 'joining', micOn: options.mic, camOn: options.cam, blur: options.blur, error: null });
   try {
     const result = await api<JoinResult>(path('/join'), { method: 'POST', body: {} });
+    if (get().code !== code || get().phase !== 'joining') return;
     if (result.state === 'denied') return set({ phase: 'denied' });
     if (result.state === 'waiting') return set({ phase: 'waiting' });
     await enter(result.grant, options);
@@ -142,6 +148,7 @@ export async function join(options: { mic: boolean; cam: boolean; blur: boolean;
 }
 
 async function enter(grant: MediaGrant, options?: { videoDevice?: string; audioDevice?: string }) {
+  const code = get().code;
   preview.video?.stop();
   preview.audio?.stop();
   const room = new Room({
@@ -193,6 +200,7 @@ async function enter(grant: MediaGrant, options?: { videoDevice?: string; audioD
     if (get().phase === 'in' && get().room === room && !switching) set({ phase: 'ended' });
   });
   await room.connect(grant.url, grant.token);
+  if (code !== get().code || ['ended', 'denied', 'removed'].includes(get().phase)) { await room.disconnect(); return; }
   set({ room, phase: 'in' });
   const can = (source: number) => room.localParticipant.permissions?.canPublishSources.includes(source as never) ?? true;
   // Devices start alongside: a permission prompt must not hold up entering the room.
@@ -388,6 +396,7 @@ function bind() {
     if (code !== get().code) return;
     if (state === 'admitted' && get().phase === 'waiting') {
       const { grant } = await api<{ grant: MediaGrant }>(path('/token'), { method: 'POST', body: {} });
+      if (get().code !== code || get().phase !== 'waiting') return;
       await enter(grant);
     } else if (state === 'denied') set({ phase: 'denied' });
     else if (state === 'removed') {

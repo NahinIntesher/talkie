@@ -76,15 +76,16 @@ export function pushHandlers({ origin, db, fcm, log, profiles }: Deps) {
   /** Sends to every device of each user; forgets tokens Firebase says are dead. */
   const deliver = async (userIds: string[], build: (userId: string) => PushMessage | null) => {
     if (!userIds.length) return;
-    const tokens = await db.query<{ device_id: string; user_id: string; token: string }>(
-      `SELECT device_id, user_id, token FROM push_tokens WHERE provider = 'fcm' AND user_id IN (${placeholders(userIds)})`,
+    const tokens = await db.query<{ device_id: string; user_id: string; token: string; inline_reply: number }>(
+      `SELECT device_id, user_id, token, inline_reply FROM push_tokens WHERE provider = 'fcm' AND user_id IN (${placeholders(userIds)})`,
       userIds,
     );
     await Promise.all(
       tokens.map(async (row) => {
         const message = build(row.user_id);
         if (!message) return;
-        const result = await fcm.send(row.token, message);
+        message.data = { ...message.data, deviceId: row.device_id, userId: row.user_id };
+        const result = await fcm.send(row.token, message, !!row.inline_reply && message.channel === 'messages');
         if (result === 'invalid_token') await db.run('DELETE FROM push_tokens WHERE device_id = ? AND token = ?', [row.device_id, row.token]);
       }),
     );
@@ -118,7 +119,7 @@ export function pushHandlers({ origin, db, fcm, log, profiles }: Deps) {
         return {
           title: preview ? (group ?? sender) : 'Talkie',
           body: preview ? (group ? `${sender}: ${what}` : what) : w.hidden,
-          data: { type: 'message', conversationId: p.conversationId, messageId: p.messageId },
+          data: { type: 'message', conversationId: p.conversationId, messageId: p.messageId, locale: byId.get(userId)?.locale ?? 'bn' },
           channel: 'messages',
           tag: p.conversationId,
           link: `${origin}/app?c=${p.conversationId}`,

@@ -8,6 +8,7 @@ import { api, ApiError } from '../api';
 import { realtime } from '../realtime';
 import { deviceKeys, senderKeys } from '../chat/keys';
 import { loadProfiles } from '../chat/engine';
+import { useMeet } from '../meet/engine';
 
 export type CallPhase = 'outgoing' | 'connecting' | 'active' | 'reconnecting' | 'ended';
 
@@ -29,9 +30,10 @@ interface CallState {
   enabled: boolean | null;
   session: CallSession | null;
   incoming: CallInfo | null;
+  recoverable: CallInfo | null;
 }
 
-export const useCall = create<CallState>(() => ({ enabled: null, session: null, incoming: null }));
+export const useCall = create<CallState>(() => ({ enabled: null, session: null, incoming: null, recoverable: null }));
 const set = useCall.setState;
 const get = useCall.getState;
 
@@ -121,7 +123,11 @@ async function connect(grant: MediaGrant, callKey: string, video: boolean): Prom
   room.on(RoomEvent.Reconnected, () => patch({ phase: 'active' }));
   room.on(RoomEvent.Disconnected, () => {
     const session = get().session;
-    if (session && session.phase !== 'ended') void hangUp('disconnected');
+    if (session?.room === room && session.phase !== 'ended') {
+      stopTone();
+      set({ session: null, recoverable: session.info });
+      void refreshCurrent();
+    }
   });
   try {
     await room.setE2EEEnabled(true);
@@ -153,14 +159,17 @@ function friendly(error: unknown): string {
 let startingCall = false;
 
 export async function startCall(conversationId: string, media: 'audio' | 'video'): Promise<string | null> {
-  if (get().session || startingCall) return 'You are already on a call.';
+  if (['in', 'joining', 'waiting'].includes(useMeet.getState().phase)) return 'Leave your meeting before starting a call.';
+  if (get().session) { patch({ minimized: false }); return null; }
+  if (startingCall) return null;
+  if (get().recoverable) return resumeCall();
   const keys = deviceKeys();
   if (!keys) return 'Your encryption keys are not ready yet.';
   startingCall = true;
   let startedId: string | undefined;
   try {
     const callKey = e2ee.newCallKey();
-    const { devices } = await api<{ devices: DeviceKey[] }>(`/chat/conversations/${conversationId}/devices?fresh=1`);
+    const { devices } = await api<{ devices: DeviceKey[] }>(`/chat/conversations/${conversationId}/devices?fresh=1&media=1`);
     const dial = (recipients: DeviceKey[]) => api<{ call: CallInfo; grant: MediaGrant | null }>('/meet/calls', {
       method: 'POST',
       body: { conversationId, media, keys: e2ee.sealSecret(callKey, keys.pair, [...recipients, { deviceId: keys.deviceId, identityKey: keys.pair.publicKey, userId: '' }]) },
@@ -181,12 +190,16 @@ export async function startCall(conversationId: string, media: 'audio' | 'video'
     const room = await connect(grant, joinedExisting ? await keyFor(call) : callKey, media === 'video');
     if (get().session?.info.id === call.id && get().session?.phase !== 'ended') patch({ room });
     else await room.disconnect();
-    if (joinedExisting && get().session?.info.id === call.id && get().session?.phase !== 'ended') patch({ phase: 'active' });
+    if ((joinedExisting || room.remoteParticipants.size) && get().session?.info.id === call.id && get().session?.phase !== 'ended') patch({ phase: 'active' });
     return null;
   } catch (error) {
     stopTone();
     set({ session: null });
     if (startedId) void api(`/meet/calls/${startedId}/leave`, { method: 'POST', body: {} }).catch(() => {});
+    if (error instanceof ApiError && error.details?.currentCallId) {
+      await refreshCurrent();
+      if (get().recoverable) return null;
+    }
     return friendly(error);
   } finally {
     startingCall = false;
@@ -200,9 +213,41 @@ async function keyFor(call: CallInfo): Promise<string> {
   return e2ee.openSecret(call.sealedKey, known.get(call.keySenderDeviceId)!, keys.pair);
 }
 
+async function refreshCurrent() {
+  const { call } = await api<{ call: CallInfo | null }>('/meet/calls/current').catch(() => ({ call: null }));
+  if (bound && !get().session) set({ recoverable: call });
+}
+
+export async function resumeCall(): Promise<string | null> {
+  if (['in', 'joining', 'waiting'].includes(useMeet.getState().phase)) return 'Leave your meeting before rejoining the call.';
+  const saved = get().recoverable;
+  if (!saved || startingCall || get().session) return null;
+  startingCall = true;
+  try {
+    const key = await keyFor(saved);
+    const { call, grant } = await api<{ call: CallInfo; grant: MediaGrant }>(`/meet/calls/${saved.id}/resume`, { method: 'POST', body: {} });
+    set({ recoverable: null, session: { info: call, room: null, phase: 'connecting', micOn: true, camOn: false, screenOn: false, minimized: false, endReason: null, version: 0 } });
+    const room = await connect(grant, key, false);
+    if (get().session?.info.id === call.id && get().session?.phase !== 'ended') patch({ room, phase: call.answeredAt || room.remoteParticipants.size ? 'active' : 'outgoing' });
+    else await room.disconnect();
+    return null;
+  } catch (error) {
+    set({ session: null });
+    await refreshCurrent();
+    return friendly(error);
+  } finally { startingCall = false; }
+}
+
+export async function leaveRecoverable() {
+  const call = get().recoverable;
+  if (call) await api(`/meet/calls/${call.id}/leave`, { method: 'POST', body: {} });
+  if (get().recoverable?.id === call?.id) set({ recoverable: null });
+}
+
 // ───────── Incoming ─────────
 
 export async function accept(media: 'audio' | 'video') {
+  if (['in', 'joining', 'waiting'].includes(useMeet.getState().phase)) { alert('Leave your meeting before answering.'); return; }
   const incoming = get().incoming;
   if (!incoming) return;
   stopTone();
@@ -232,6 +277,7 @@ export async function decline() {
 
 /** Join a group call that is already going on in a chat. */
 export async function joinGroupCall(callId: string) {
+  if (['in', 'joining', 'waiting'].includes(useMeet.getState().phase)) return;
   if (get().session) return;
   const { call } = await api<{ call: CallInfo }>(`/meet/calls/${callId}`);
   const { grant, call: joined } = await api<{ call: CallInfo; grant: MediaGrant }>(`/meet/calls/${callId}/join`, { method: 'POST', body: {} });
@@ -291,9 +337,10 @@ export const setMinimized = (minimized: boolean) => patch({ minimized });
 function finishLocally(reason: string) {
   stopTone();
   const session = get().session;
-  session?.room?.disconnect();
   if (!session) return;
   patch({ phase: 'ended', endReason: reason, room: null });
+  session.room?.removeAllListeners();
+  void session.room?.disconnect();
   setTimeout(() => {
     if (get().session?.phase === 'ended') set({ session: null });
   }, 1800);
@@ -313,6 +360,7 @@ export function bindCalls() {
   const socket = realtime();
   if (!socket || bound) return;
   bound = true;
+  void refreshCurrent();
   socket.on('call:incoming', async ({ callId }: { callId: string }) => {
     if (get().session) return; // already on a call: the server marks this one busy/missed
     try {
@@ -326,12 +374,17 @@ export function bindCalls() {
   });
   socket.on('call:update', async ({ callId }: { callId: string }) => {
     const session = get().session;
+    if (get().incoming?.id === callId) {
+      const { calls } = await api<{ calls: CallInfo[] }>('/meet/calls/incoming');
+      if (get().incoming?.id === callId && !calls.some(c => c.id === callId)) { stopTone(); set({ incoming: null }); }
+    }
     if (session?.info.id !== callId) return;
     const { call } = await api<{ call: CallInfo }>(`/meet/calls/${callId}`);
     void loadProfiles(call.participants.map((p) => p.userId));
-    patch({ info: call });
+    if (get().session?.info.id === callId) patch({ info: call });
   });
   socket.on('call:ended', ({ callId, outcome }: { callId: string; outcome: string }) => {
+    if (get().recoverable?.id === callId) set({ recoverable: null });
     if (get().incoming?.id === callId) {
       stopTone();
       set({ incoming: null });
@@ -353,6 +406,8 @@ export function bindCalls() {
 export function unbindCalls() {
   bound = false;
   stopTone();
-  get().session?.room?.disconnect();
-  set({ session: null, incoming: null, enabled: null });
+  const room = get().session?.room;
+  set({ session: null, incoming: null, recoverable: null, enabled: null });
+  room?.removeAllListeners();
+  void room?.disconnect();
 }

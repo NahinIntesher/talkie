@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../call/calls.dart';
+import '../call/call_overlay.dart';
 import '../call/calls_screen.dart';
 import '../chat/chat.dart';
 import '../core/prefs.dart';
@@ -16,6 +17,7 @@ import 'chats.dart';
 import 'settings.dart';
 import 'thread.dart';
 import '../core/push.dart';
+import '../core/notification_reply.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -25,6 +27,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int tab = 0;
+  final replies = ReplyListener();
 
   @override
   void initState() {
@@ -32,6 +35,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     final chat = context.read<Chat>();
     chat.start();
+    replies.start(chat);
     context.read<Calls>();
     context.read<Statuses>();
     // Push notifications: register this device, and open the chat whose notification was tapped.
@@ -57,6 +61,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    replies.close();
     push.openConversation.removeListener(_openFromPush);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -67,6 +72,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final chat = context.read<Chat>();
     if (state == AppLifecycleState.resumed) {
       chat.resumed();
+      replies.flush(chat);
       context.read<Calls>().checkIncoming();
       push.register(openChat: () => chat.activeId, requestPermission: false);
     } else if (state == AppLifecycleState.paused) {
@@ -81,7 +87,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final p = context.palette;
     final freshStatus = context.select<Statuses, bool>((s) => s.groups.any((g) => !g.allViewed && !s.muted.contains(g.ownerId)));
     const pages = [ChatsScreen(), StatusScreen(), CallsScreen(), MeetScreen(), SettingsScreen()];
-    return Scaffold(
+    final ongoing = context.select<Calls, bool>((c) => c.phase != null) || context.select<MeetingHub, bool>((h) => h.current?.room != null);
+    return PopScope(canPop: !ongoing, onPopInvokedWithResult: (popped, _) {
+      if (!popped && ongoing) CallOverlay.native.invokeMethod<void>('background');
+    }, child: Scaffold(
       body: IndexedStack(index: tab, children: pages),
       bottomNavigationBar: NavigationBarTheme(
         data: NavigationBarThemeData(
@@ -109,6 +118,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ],
         ),
       ),
-    );
+    ));
   }
 }

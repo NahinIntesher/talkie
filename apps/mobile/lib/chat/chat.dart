@@ -384,7 +384,10 @@ class Chat extends ChangeNotifier {
     }
   }
 
-  Future<List<Recipient>> devicesOf(String conversationId) => _devicesFor(conversationId, fresh: true);
+  Future<List<Recipient>> devicesOf(String conversationId) async {
+    final result = await api.get('/chat/conversations/$conversationId/devices?fresh=1&media=1');
+    return (result['devices'] as List).cast<Json>().map(Recipient.fromJson).toList();
+  }
 
   void _upsert(String conversationId, ChatMessage message, {String? replaceId}) {
     final thread = threads.putIfAbsent(conversationId, Thread.new);
@@ -400,8 +403,8 @@ class Chat extends ChangeNotifier {
     _changed();
   }
 
-  Future<void> _send(String conversationId, String kind, Json body, {String? replyToId, ChatMessage? retry, Future<({Json? body, List<String> mediaIds})> Function(String localId)? prepare}) async {
-    final clientMessageId = retry?.id.substring(6) ?? _crypto.clientMessageId();
+  Future<void> _send(String conversationId, String kind, Json body, {String? replyToId, String? requestId, ChatMessage? retry, Future<({Json? body, List<String> mediaIds})> Function(String localId)? prepare}) async {
+    final clientMessageId = retry?.id.substring(6) ?? requestId ?? _crypto.clientMessageId();
     final localId = 'local:$clientMessageId';
     final optimistic = retry?.copyWith(local: 'sending') ??
         ChatMessage(
@@ -450,8 +453,8 @@ class Chat extends ChangeNotifier {
     _changed();
   }
 
-  Future<void> sendText(String conversationId, String text, {String? replyToId, ChatMessage? retry}) =>
-      _send(conversationId, 'text', {'v': 1, 'text': text}, replyToId: replyToId, retry: retry);
+  Future<void> sendText(String conversationId, String text, {String? replyToId, ChatMessage? retry, String? requestId}) =>
+      _send(conversationId, 'text', {'v': 1, 'text': text}, replyToId: replyToId, retry: retry, requestId: requestId);
 
   /// Sends a message whose attachment is uploaded first (see media.dart).
   Future<void> sendWithUpload(String conversationId, String kind, Json body, Future<({Json? body, List<String> mediaIds})> Function(String localId) prepare, {String? replyToId}) =>

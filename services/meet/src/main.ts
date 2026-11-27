@@ -39,6 +39,10 @@ service.app.addContentTypeParser('application/webhook+json', { parseAs: 'string'
 
 const ctx: Context = { db, ids, relay, guards, lk, env, services: services(env) };
 const calls = registerCallRoutes(service.app, ctx);
+bus.subscribe('meet-call-revocations', ['device.revoked'], async (event) => {
+  const { deviceId } = event.payload as { deviceId: string };
+  await calls.revokeDevice(deviceId);
+});
 registerMeetingRoutes(service.app, ctx, { callRoomFinished: calls.roomFinished });
 registerAdminRoutes(service.app, ctx);
 

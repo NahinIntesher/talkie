@@ -12,7 +12,7 @@ import { MeetingRoom } from '@/components/meet/room';
 import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { nameOf, useChat } from '@/lib/chat/store';
-import { join, loadMeeting, resetMeet, setPreview, useMeet } from '@/lib/meet/engine';
+import { join, leave, loadMeeting, resetMeet, setPreview, useMeet } from '@/lib/meet/engine';
 
 const copy = {
   en: {
@@ -73,8 +73,18 @@ export default function MeetingPage({ params }: { params: Promise<{ code: string
 
   useEffect(() => {
     if (status === 'signed_out') router.replace(`/signin?next=${encodeURIComponent(`/meet/${code}`)}`);
-    if (status === 'signed_in') void loadMeeting(code);
-    return () => resetMeet();
+    if (status === 'signed_in') {
+      const existing = useMeet.getState();
+      if (['in', 'joining', 'waiting'].includes(existing.phase)) {
+        if (existing.code !== code) router.replace(`/meet/${existing.code}`);
+      } else void loadMeeting(code);
+    }
+    return () => {
+      const s = useMeet.getState();
+      if (s.code !== code || s.phase === 'in') return;
+      if (s.phase === 'waiting' || s.phase === 'joining') void leave();
+      resetMeet();
+    };
   }, [status, code, router]);
 
   if (phase === 'in') return <MeetingRoom />;

@@ -9,11 +9,8 @@ import { CircleDashed, LogOut, MessageCircle, Phone, Settings, ShieldCheck, Vide
 import { Avatar, LogoMark } from '@/components/ui/primitives';
 import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
-import { startChat, stopChat } from '@/lib/chat/engine';
+import { api } from '@/lib/api';
 import { useChat } from '@/lib/chat/store';
-import { CallOverlay } from '@/components/call/call-overlay';
-import { bindCalls, unbindCalls } from '@/lib/call/engine';
-import { registerWebPush } from '@/lib/push';
 import { adminStrings } from '@/lib/admin/strings';
 import { Shortcuts } from '@/components/ui/shortcuts';
 
@@ -30,19 +27,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     if (status === 'signed_out') router.replace('/signin');
   }, [status, router]);
 
-  // The chat engine (encryption keys, live connection) runs for as long as the person is signed in.
-  useEffect(() => {
-    if (status !== 'signed_in' || !user) return;
-    void startChat(user.id)
-      .then(() => bindCalls())
-      .then(() => registerWebPush())
-      .catch(() => {});
-    return () => {
-      unbindCalls();
-      stopChat();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, user?.id]);
 
   const unread = useChat((state) => Object.values(state.conversations).filter((c) => !c.archived && (c.unreadCount > 0 || c.markedUnread) && !c.mutedUntil).length);
 
@@ -68,6 +52,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     ...(user.role !== 'user' ? [{ href: '/app/admin', label: adminStrings(locale).admin, icon: ShieldCheck }] : []),
   ];
   const active = (href: string, exact?: boolean) => (exact ? pathname === href : pathname.startsWith(href));
+  const leaveThisBrowser = async () => {
+    const backup = await api<{ complete: boolean }>('/chat/history/backup').catch(() => null);
+    if (!backup?.complete && !window.confirm(locale === 'bn'
+      ? 'পুরোনো চ্যাটের ব্যাকআপ অসম্পূর্ণ হতে পারে। সাইন আউট করবেন?'
+      : 'Some chats may still need this browser. Sign out anyway?')) return;
+    await signOut();
+  };
 
   return (
     <div className="flex h-dvh flex-col-reverse bg-bg md:flex-row">
@@ -81,7 +72,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         ))}
         <div className="hidden md:block md:flex-1" />
         <RailLink href="/app/settings" label={t.app.settings} icon={Settings} active={active('/app/settings')} />
-        <button onClick={() => void signOut()} className="hidden size-12 items-center justify-center rounded-2xl text-muted transition-colors hover:bg-danger-soft hover:text-danger md:inline-flex" aria-label={t.app.signOut} title={t.app.signOut}>
+        <button onClick={() => void leaveThisBrowser()} className="hidden size-12 items-center justify-center rounded-2xl text-muted transition-colors hover:bg-danger-soft hover:text-danger md:inline-flex" aria-label={t.app.signOut} title={t.app.signOut}>
           <LogOut className="size-5" />
         </button>
         <Link href="/app/settings" className="mt-1 hidden md:block" aria-label={user.displayName}>
@@ -89,7 +80,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </Link>
       </nav>
       <div className="min-h-0 min-w-0 flex-1">{children}</div>
-      <CallOverlay />
       <Shortcuts />
     </div>
   );

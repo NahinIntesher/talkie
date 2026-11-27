@@ -38,6 +38,17 @@ class Crypto {
     return result;
   }
 
+  String newRecoveryCode() => 'TK1.${b64(random(32))}';
+  DeviceKeyPair recoveryPair(String code) {
+    if (!RegExp(r'^TK1\.[A-Za-z0-9_-]{43}$').hasMatch(code.trim())) throw const FormatException('Invalid recovery key');
+    final seed = SecureKey.fromList(sodium, unb64(code.trim().substring(4)));
+    try {
+      final pair = sodium.crypto.box.seedKeyPair(seed);
+      try { return DeviceKeyPair(publicKey: b64(pair.publicKey), secretKey: b64(pair.secretKey.extractBytes())); }
+      finally { pair.secretKey.dispose(); }
+    } finally { seed.dispose(); }
+  }
+
   // ───────── Messages ─────────
 
   /// Encrypts [body] once and seals its key for every recipient device.

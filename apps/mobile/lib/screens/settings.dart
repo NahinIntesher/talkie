@@ -11,6 +11,7 @@ import '../chat/history.dart';
 import '../chat/media.dart';
 import '../chat/models.dart';
 import '../core/api.dart';
+import '../core/crypto.dart';
 import '../core/prefs.dart';
 import '../core/session.dart';
 import '../ui/format.dart';
@@ -68,6 +69,7 @@ class SettingsScreen extends StatelessWidget {
         _Section(children: [
           _Row(icon: LucideIcons.shieldCheck, label: t('প্রাইভেসি', 'Privacy'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PrivacyScreen()))),
           _Row(icon: LucideIcons.monitorSmartphone, label: t('ডিভাইস', 'Devices'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DevicesScreen()))),
+          _Row(icon: LucideIcons.history, label: t('চ্যাট ব্যাকআপ ও রিকভারি', 'Chat backup and recovery'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DevicesScreen(historyFirst: true)))),
           _Row(icon: LucideIcons.bell, label: t('নোটিফিকেশন সেটিংস', 'Notification settings'), onTap: () => openAppSettings()),
         ]),
         _Section(children: [
@@ -76,11 +78,18 @@ class SettingsScreen extends StatelessWidget {
             label: t('সাইন আউট', 'Sign out'),
             danger: true,
             onTap: () async {
+              final backup = await api.get('/chat/history/backup').catchError((_) => null);
+              if (!context.mounted) return;
               final ok = await showDialog<bool>(
                 context: context,
                 builder: (d) => AlertDialog(
                   title: Text(t('সাইন আউট করবেন?', 'Sign out?')),
+                  content: backup?['complete'] == true ? null : Text(t('পুরোনো চ্যাটের ব্যাকআপ অসম্পূর্ণ হতে পারে। আগে ব্যাকআপ দেখে নিন।', 'Some chats may still need this device. Check your backup before signing out.')),
                   actions: [
+                    if (backup?['complete'] != true) TextButton(onPressed: () {
+                      Navigator.pop(d, false);
+                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DevicesScreen(historyFirst: true)));
+                    }, child: Text(t('ব্যাকআপ দেখুন', 'Check backup'))),
                     TextButton(onPressed: () => Navigator.pop(d), child: Text(t('বাতিল', 'Cancel'))),
                     TextButton(onPressed: () => Navigator.pop(d, true), child: Text(t('সাইন আউট', 'Sign out'), style: TextStyle(color: p.danger))),
                   ],
@@ -339,7 +348,8 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
 }
 
 class DevicesScreen extends StatefulWidget {
-  const DevicesScreen({super.key});
+  const DevicesScreen({super.key, this.historyFirst = false});
+  final bool historyFirst;
   @override
   State<DevicesScreen> createState() => _DevicesScreenState();
 }
@@ -349,6 +359,42 @@ class _DevicesScreenState extends State<DevicesScreen> {
   List<Json> historyRequests = [];
   bool historyPending = false;
   bool transferring = false;
+  bool? backupComplete;
+  Future<void> _backup() async {
+    final t = context.read<Prefs>().t;
+    final chat = context.read<Chat>();
+    setState(() => transferring = true);
+    try {
+      final setup = (await api.get('/chat/history/backup'))['backup'] == null;
+      if (!mounted) return;
+      var code = setup ? Crypto.instance.newRecoveryCode() : '';
+      final confirmed = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(
+        title: Text(setup ? t('রিকভারি কী সংরক্ষণ করুন', 'Save your recovery key') : t('চ্যাট ফিরিয়ে আনুন', 'Restore chats')),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(setup ? t('এই কী পাসওয়ার্ড ম্যানেজারে রাখুন। নতুন ফোনে পুরোনো ফোন ছাড়াই এটি দিয়ে চ্যাট খুলবেন।', 'Save this key in your password manager. It opens your backed-up chats on a new phone.')
+              : t('আপনার সংরক্ষিত রিকভারি কী পেস্ট করুন।', 'Paste your saved recovery key.')),
+          const SizedBox(height: 12),
+          if (setup) ...[SelectableText(code), TextButton.icon(icon: const Icon(Icons.copy), label: Text(t('কপি', 'Copy')), onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: code));
+            if (dialog.mounted) showMessage(dialog, t('কী কপি হয়েছে', 'Key copied'));
+          })] else TextField(autofocus: true, autocorrect: false, enableSuggestions: false, onChanged: (v) => code = v, decoration: const InputDecoration(hintText: 'TK1.…')),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog), child: Text(t('বাতিল', 'Cancel'))),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: Text(setup ? t('সংরক্ষণ করেছি', 'I saved my key') : t('ফিরিয়ে আনুন', 'Restore'))),
+        ],
+      ));
+      if (confirmed != true || !mounted) return;
+      final result = await recoverHistory(chat, code.trim(), setup);
+      await _loadBackup();
+      if (mounted) { showMessage(context, result.unreadable > 0
+          ? t('কিছু বার্তা খোলা যায়নি। যে ডিভাইসে সেগুলো দেখা যায় সেখানে একই কী ব্যবহার করুন।', 'Some messages still need the device that can read them. Use the same recovery key there.')
+          : setup ? t('এই ডিভাইসের পাঠযোগ্য চ্যাট ব্যাকআপ হয়েছে। নতুন বার্তাও সংরক্ষিত হবে।', 'Readable chats are backed up. New messages are protected automatically.')
+          : t('${result.added}টি বার্তা ফিরেছে।', '${result.added} messages restored.')); }
+    } catch (error) {
+      if (mounted) showMessage(context, error is FormatException ? t('কী মিলছে না। সংরক্ষিত কীটি আবার পেস্ট করুন।', 'Key does not match. Paste the saved key again.') : t('সম্পূর্ণ হয়নি। একই কী নিয়ে আবার চেষ্টা করুন।', 'Could not finish. Retry with the same key.'), error: true);
+    } finally { if (mounted) setState(() => transferring = false); }
+  }
 
   Future<void> _requestHistory() async {
     try {
@@ -412,7 +458,14 @@ class _DevicesScreenState extends State<DevicesScreen> {
       final r = await api.get('/auth/devices');
       if (mounted) setState(() => devices = (r['devices'] as List).cast<Json>());
     } catch (_) {}
-    await _loadHistoryRequests();
+    await Future.wait([_loadHistoryRequests(), _loadBackup()]);
+  }
+
+  Future<void> _loadBackup() async {
+    try {
+      final result = await api.get('/chat/history/backup');
+      if (mounted) setState(() => backupComplete = result['backup'] == null ? null : result['complete'] == true);
+    } catch (_) {}
   }
 
   Future<void> _loadHistoryRequests() async {
@@ -457,7 +510,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
       context: context,
       builder: (dialog) => AlertDialog(
         title: Text(t('ডিভাইস থেকে সাইন আউট করবেন?', 'Sign out this device?')),
-        content: Text(device['name'] as String),
+        content: Text("${device['name']}\n\n${t('এই ডিভাইসে পড়া যায় এমন বার্তা আগে চ্যাট ব্যাকআপে সংরক্ষণ করুন।', 'Back up any chats that you can only open on this device before signing it out.') }"),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialog), child: Text(t('বাতিল', 'Cancel'))),
           FilledButton(onPressed: () => Navigator.pop(dialog, true), child: Text(t('সাইন আউট', 'Sign out'))),
@@ -486,6 +539,14 @@ class _DevicesScreenState extends State<DevicesScreen> {
       body: devices == null
           ? const Center(child: CircularProgressIndicator())
           : ListView(children: [
+              ListTile(leading: const Icon(LucideIcons.shieldCheck), title: Text(t('চ্যাট ব্যাকআপ ও রিকভারি', 'Chat backup and recovery')),
+                subtitle: Text(switch (backupComplete) {
+                  true => t('চ্যাট ব্যাকআপ সম্পূর্ণ', 'Chat backup complete'),
+                  false => t('কিছু বার্তার ব্যাকআপ বাকি', 'Some messages still need backup'),
+                  null => t('পুরোনো ফোন ছাড়াও চ্যাট পেতে রিকভারি কী সংরক্ষণ করুন।', 'Save a recovery key to restore chats without your old phone.'),
+                }),
+                trailing: const Icon(Icons.chevron_right), onTap: transferring ? null : _backup),
+              if (!widget.historyFirst) ...[
               Padding(padding: const EdgeInsets.all(16), child: Text(t('একসঙ্গে সর্বোচ্চ তিনটি ডিভাইস সক্রিয় থাকবে।', 'Up to three devices can stay signed in.'))),
               for (final d in devices!)
                 ListTile(
@@ -508,10 +569,11 @@ class _DevicesScreenState extends State<DevicesScreen> {
                           onPressed: () => _signOutDevice(d),
                         ),
                 ),
+              ],
               if (transferring) const LinearProgressIndicator(),
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 24, 20, 4),
-                child: Text(t('এনক্রিপ্ট করা চ্যাট ইতিহাস', 'Encrypted chat history'), style: Theme.of(context).textTheme.titleMedium),
+                child: Text(t('রিকভারি কী নেই? পুরোনো ডিভাইস ব্যবহার করুন', 'No recovery key? Use your old device'), style: Theme.of(context).textTheme.titleMedium),
               ),
               ListTile(
                 leading: const Icon(LucideIcons.history),
@@ -529,7 +591,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
                     subtitle: Text(device['name'] as String),
                     onTap: transferring ? null : () => _approveHistory(request, device['name'] as String),
                   ),
-              ListTile(
+              ExpansionTile(title: Text(t('ম্যানুয়াল ট্রান্সফার', 'Manual transfer')), children: [ListTile(
                 leading: const Icon(LucideIcons.copy),
                 title: Text(t('এই ডিভাইসের কোড কপি করুন', 'Copy this device’s code')),
                 onTap: () async {
@@ -544,7 +606,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
                 title: Text(t('চ্যাট ইতিহাস পাঠান', 'Send chat history')),
                 enabled: !transferring,
                 onTap: transferring ? null : _transfer,
-              ),
+              )]),
             ]),
     );
   }

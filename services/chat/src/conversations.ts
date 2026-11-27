@@ -6,6 +6,7 @@ import { isDuplicate } from '@talkie/db';
 import * as contract from '@talkie/contracts';
 import {
   activeMemberIds,
+  messageRecipients,
   emit,
   isAdmin,
   MESSAGE_COLUMNS,
@@ -149,9 +150,9 @@ export function registerConversationRoutes(app: FastifyInstance, ctx: Context) {
   app.get('/chat/conversations/:id/devices', auth, async (request) => {
     const me = caller(request);
     const { id } = z.object({ id: contract.id }).parse(request.params);
-    const { fresh } = z.object({ fresh: z.literal('1').optional() }).parse(request.query);
+    const { fresh, media } = z.object({ fresh: z.literal('1').optional(), media: z.literal('1').optional() }).parse(request.query);
     await membership(db, id, me.userId);
-    return { devices: await ctx.devices.forUsers(await activeMemberIds(db, id), fresh === '1') };
+    return { devices: media ? await ctx.devices.forUsers(await activeMemberIds(db, id), fresh === '1') : await messageRecipients(ctx, id, fresh === '1') };
   });
 
   // ───────── Direct chats ─────────

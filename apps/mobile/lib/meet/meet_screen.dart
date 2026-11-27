@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../chat/chat.dart';
+import '../call/calls.dart';
 import '../chat/models.dart';
 import '../core/api.dart';
 import '../core/config.dart';
@@ -46,7 +47,13 @@ class _MeetScreenState extends State<MeetScreen> {
     } catch (_) {}
   }
 
-  void open(String meetingCode) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => MeetingRoom(code: meetingCode))).then((_) => load());
+  void open(String meetingCode) {
+    if (context.read<Calls>().phase != null) {
+      context.read<Calls>().showCall(false);
+      return;
+    }
+    context.read<MeetingHub>().open(Navigator.of(context), meetingCode).then((_) => load());
+  }
 
   Future<void> startNow() async {
     setState(() => busy = true);
@@ -125,12 +132,53 @@ class _MeetScreenState extends State<MeetScreen> {
   }
 }
 
-class MeetingRoom extends StatelessWidget {
-  const MeetingRoom({super.key, required this.code});
-  final String code;
+class MeetingHub extends ChangeNotifier {
+  MeetingHub(this.chat);
+  final Chat chat;
+  Meeting? current;
+  bool visible = false;
+  bool _disposed = false;
+
+  Future<void> open(NavigatorState navigator, String code) async {
+    if (visible || _disposed) return;
+    final m = current ??= Meeting(chat, code)..addListener(_changed);
+    visible = true;
+    _changed();
+    await navigator.push(MaterialPageRoute<void>(builder: (_) => ChangeNotifierProvider.value(value: m, child: const _Room())));
+    if (_disposed) return;
+    visible = false;
+    if (m.phase != MeetPhase.inRoom) {
+      final waiting = m.phase == MeetPhase.waiting;
+      if (current == m) {
+        current = null;
+        m.removeListener(_changed);
+      }
+      if (waiting) await m.leave();
+      m.dispose();
+    }
+    _changed();
+  }
+
+  void _clear() {
+    current?.removeListener(_changed);
+    current?.dispose();
+    current = null;
+  }
+  void _changed() {
+    if (_disposed) return;
+    if (!visible && current != null && current!.phase != MeetPhase.inRoom) {
+      final old = current!;
+      old.removeListener(_changed);
+      current = null;
+      Future.microtask(old.dispose);
+    }
+    notifyListeners();
+  }
   @override
-  Widget build(BuildContext context) {
-    return ChangeNotifierProvider(create: (c) => Meeting(c.read<Chat>(), code), child: const _Room());
+  void dispose() {
+    _disposed = true;
+    _clear();
+    super.dispose();
   }
 }
 
@@ -174,10 +222,7 @@ class _Room extends StatelessWidget {
     return Theme(
       data: dark,
       child: PopScope(
-        canPop: m.phase != MeetPhase.inRoom,
-        onPopInvokedWithResult: (popped, _) {
-          if (!popped) m.leave().then((_) => context.mounted ? Navigator.of(context).pop() : null);
-        },
+        canPop: m.phase != MeetPhase.joining,
         child: Scaffold(
           backgroundColor: const Color(0xFF0B0E1A),
           appBar: m.phase == MeetPhase.inRoom
@@ -292,6 +337,7 @@ class _InRoom extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
             child: Row(children: [
+              IconButton(tooltip: t('ছোট করুন', 'Minimize meeting'), icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white), onPressed: () => Navigator.pop(context)),
               Expanded(
                 child: Text(
                   (m.meeting?['title'] as String?)?.isNotEmpty == true ? m.meeting!['title'] as String : m.code,

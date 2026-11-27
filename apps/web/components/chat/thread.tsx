@@ -14,6 +14,7 @@ import { chatStrings, dayLabel, lastSeenText } from '@/lib/chat/strings';
 import * as engine from '@/lib/chat/engine';
 import { startCall } from '@/lib/call/engine';
 import { Composer } from './composer';
+import Link from 'next/link';
 import { MessageBubble, type BubbleActions } from './message-bubble';
 import { previewText } from './text';
 
@@ -278,6 +279,7 @@ export function Thread({ conversationId, onBack, onInfo }: { conversationId: str
             <span className="size-8 animate-spin rounded-full border-[3px] border-brand/25 border-t-brand" aria-label="Loading" />
           </div>
         )}
+        {items.some(m => m.unreadable) && <Link href="/app/settings?section=devices" className="mx-auto my-2 block w-fit rounded-xl bg-surface px-4 py-2 text-sm font-bold text-brand">{locale === 'bn' ? 'পুরোনো বার্তা ফিরিয়ে আনুন' : 'Restore older messages'}</Link>}
         {items.map((message, index) => {
           const previous = items[index - 1];
           const next = items[index + 1];

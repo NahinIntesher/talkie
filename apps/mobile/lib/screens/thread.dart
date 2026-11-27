@@ -13,6 +13,7 @@ import 'bubble.dart';
 import '../core/api.dart';
 import 'composer.dart';
 import 'info.dart';
+import 'settings.dart';
 
 class ThreadScreen extends StatefulWidget {
   const ThreadScreen({super.key, required this.conversationId});
@@ -115,6 +116,12 @@ class _ThreadScreenState extends State<ThreadScreen> {
         ],
       ),
       body: Column(children: [
+        if (items.any((m) => m.unreadable != null))
+          TextButton.icon(icon: const Icon(Icons.history), label: Text(t('পুরোনো বার্তা ফিরিয়ে আনুন', 'Restore older messages')),
+            onPressed: () async {
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => const DevicesScreen(historyFirst: true)));
+              if (mounted) await chat.loadOlder(widget.conversationId, initial: true);
+            }),
         Expanded(
           child: loadFailed
               ? Center(child: TextButton(onPressed: _open, child: Text(t('চ্যাট লোড হয়নি। আবার চেষ্টা করুন', 'Could not load this chat. Try again'))))

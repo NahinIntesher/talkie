@@ -25,7 +25,7 @@ const check = (label: string, ok: boolean, detail?: unknown) => {
 
 function start(name: string) {
   // A development media key: tokens are signed and checked, no media server is needed for these checks.
-  const env = { ...process.env, OWNER_EMAILS: OWNER_EMAIL, LOG_LEVEL: 'warn', DEV_LOG_OTP: 'true', LIVEKIT_URL: 'ws://127.0.0.1:7880', LIVEKIT_API_KEY: 'devkey', LIVEKIT_API_SECRET: 'e2e-test-secret-that-is-long-enough' } as NodeJS.ProcessEnv;
+  const env = { ...process.env, OWNER_EMAILS: OWNER_EMAIL, LOG_LEVEL: 'warn', DEV_LOG_OTP: 'true', LIVEKIT_URL: process.env.E2E_MEDIA_URL ?? 'ws://127.0.0.1:7880', LIVEKIT_API_KEY: 'devkey', LIVEKIT_API_SECRET: 'e2e-test-secret-that-is-long-enough' } as NodeJS.ProcessEnv;
   delete env.PORT;
   const child = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts'], { cwd: resolve(root, 'services', name), env });
   child.stdout?.on('data', (chunk: Buffer) => {
@@ -246,8 +246,8 @@ async function main() {
 
   await phase3({ call, check, mediaPort: ports.media }, { ayesha, rafi, mim }, conversationId, groupId, deviceKeys);
   await phase4({ call, check }, { ayesha, rafi, mim }, conversationId, groupId);
-  await checkHistory(rafi, rafiEmail, mim, conversationId, messageId, reply.body.message.id, deviceKeys);
   const boss = await signUp('boss', OWNER_EMAIL);
+  await checkHistory(rafi, rafiEmail, mim, conversationId, messageId, reply.body.message.id, deviceKeys);
   await phase6({ call, check }, { boss, ayesha, rafi, mim });
   await checkNativeSession(ayesha);
   for (const person of [ayesha, rafi, mim]) person.socket?.disconnect();
@@ -284,6 +284,31 @@ async function checkHistory(source: Person, email: string, outsider: Person, con
   check('the new device opens old history with its own key', imported.message?.keySenderDeviceId === source.deviceId && e2ee.open(imported.message, source.keys.publicKey, receiver.keys).text === 'Hello Rafi (edited)');
   const { body: unchanged } = await call('chat', `/chat/messages/${messageId}`, { token: source.token });
   check('the original device still opens the original wrapper', !unchanged.message?.keySenderDeviceId && e2ee.open(unchanged.message, known.get(unchanged.message.senderDeviceId)!, source.keys).text === 'Hello Rafi (edited)');
+  const recovery = e2ee.recoveryPair(e2ee.newRecoveryCode());
+  const enrollment = { identityKey: recovery.publicKey };
+  check('a newly linked device cannot replace the trust decision', (await call('chat', '/chat/history/backup', { method: 'PUT', token: receiver.token, body: enrollment })).status === 403);
+  const created = await call('chat', '/chat/history/backup', { method: 'PUT', token: source.token, body: enrollment });
+  const backup = created.body.backup;
+  check('the trusted device registers its recovery recipient', created.status === 200 && !!backup?.deviceId);
+  if (!backup) return;
+  const stored = await call('chat', '/chat/history/transfer', { token: source.token, body: { target: backup, purpose: 'backup', keys: [{
+    messageId, nonce: key.nonce, sealedKey: e2ee.sealSecret(secret, source.keys, [backup])[0]!.sealedKey,
+  }] } });
+  check('existing history is encrypted for the recovery recipient', stored.body.added === 1);
+  await call('auth', '/auth/logout', { token: source.token, body: {} });
+  const fresh = await signUp(source.name, email);
+  source.token = fresh.token;
+  const destination = { deviceId: fresh.deviceId, identityKey: fresh.keys.publicKey };
+  const exported = await call('chat', `/chat/history/transfer?${new URLSearchParams({...destination, purpose: 'restore'})}`, { token: fresh.token });
+  const saved = exported.body.keys?.find((entry: any) => entry.messageId === messageId);
+  check('encrypted backup is available after the original device signs out', !!saved);
+  if (!saved) return;
+  const opened = e2ee.openSecret(saved.sealedKey, source.keys.publicKey, recovery);
+  await call('chat', '/chat/history/transfer', { token: fresh.token, body: { target: destination, purpose: 'restore', keys: [{
+    messageId, nonce: saved.nonce, sealedKey: e2ee.sealSecret(opened, fresh.keys, [destination])[0]!.sealedKey,
+  }] } });
+  const restored = await call('chat', `/chat/messages/${messageId}`, { token: fresh.token });
+  check('the recovery key restores the message on a third device', restored.body.message?.sealedKey && e2ee.open(restored.body.message, fresh.keys.publicKey, fresh.keys).text === 'Hello Rafi (edited)');
   } finally {
     receiver.socket?.disconnect();
   }

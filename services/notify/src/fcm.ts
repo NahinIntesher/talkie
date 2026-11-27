@@ -87,21 +87,21 @@ export function createFcm(account: ServiceAccount, log: Logger) {
         return `rejected: ${String((error as Error)?.message ?? error).slice(0, 120)}`;
       }
     },
-    async send(deviceToken: string, message: PushMessage): Promise<SendResult> {
+    async send(deviceToken: string, message: PushMessage, inlineReply = false): Promise<SendResult> {
       const payload = {
         message: {
           token: deviceToken,
-          notification: { title: message.title, body: message.body },
-          data: message.data,
+          ...(!inlineReply ? { notification: { title: message.title, body: message.body } } : {}),
+          data: { ...message.data, title: message.title, body: message.body, ...(message.link ? { link: message.link } : {}) },
           android: {
-            priority: message.urgent ? 'HIGH' : 'NORMAL',
+            priority: 'HIGH',
             ttl: `${message.ttlSeconds ?? 86_400}s`,
             ...(message.tag ? { collapse_key: message.tag } : {}),
-            notification: {
+            ...(!inlineReply ? { notification: {
               channel_id: message.channel,
               ...(message.tag ? { tag: message.tag } : {}),
               default_sound: true,
-            },
+            } } : {}),
           },
           webpush: {
             headers: { Urgency: message.urgent ? 'high' : 'normal', TTL: String(message.ttlSeconds ?? 86_400) },

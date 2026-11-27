@@ -562,7 +562,7 @@ function bindRealtime() {
         delete typing[senderId];
         return { typing: { ...state.typing, [conversationId]: typing } };
       });
-      if (get().activeId !== conversationId && !get().conversations[conversationId]?.mutedUntil) notifyIncoming(conversationId, senderId);
+      if (get().activeId !== conversationId && !get().conversations[conversationId]?.mutedUntil) notifyIncoming();
     }
   });
 
@@ -660,7 +660,7 @@ function bindRealtime() {
 // ───────── Notifications ─────────
 
 let audio: AudioContext | null = null;
-function notifyIncoming(conversationId: string, senderId: string) {
+function notifyIncoming() {
   try {
     audio ??= new AudioContext();
     const osc = audio.createOscillator();
@@ -675,17 +675,7 @@ function notifyIncoming(conversationId: string, senderId: string) {
     osc.start();
     osc.stop(audio.currentTime + 0.26);
   } catch {}
-  if (document.visibilityState === 'visible' || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-  const state = get();
-  const conversation = state.conversations[conversationId];
-  const sender = state.profiles[senderId]?.displayName ?? 'Talkie';
-  const title = conversation?.group ? `${sender} · ${conversation.group.name}` : sender;
-  const text = conversation?.lastBody?.text ?? '';
-  const notification = new Notification(title, { body: text.slice(0, 140), tag: conversationId, icon: '/icon.svg' });
-  notification.onclick = () => {
-    window.focus();
-    window.location.assign(`/app?c=${conversationId}`);
-  };
+  // The push worker owns banners and applies the recipient's preview preferences.
 }
 
 // ───────── Lifecycle ─────────

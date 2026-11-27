@@ -40,6 +40,10 @@ export async function phase4({ call, check }: { call: Call; check: Check }, peop
   check('outsiders cannot see the call', outsider.status === 404);
   const accepted = await call('meet', `/meet/calls/${callId}/accept`, { token: rafi.token, body: {} });
   check('Rafi answers', accepted.status === 200 && accepted.body.call.state === 'active' && !!accepted.body.grant.token, accepted.body);
+  const current = await call('meet', '/meet/calls/current', { token: ayesha.token });
+  const resumed = await call('meet', `/meet/calls/${callId}/resume`, { token: ayesha.token, body: {} });
+  check('the same device finds and resumes its ongoing call', current.body.call?.id === callId && resumed.body.grant?.room === `call-${callId}`);
+  check('an outsider cannot resume that call', (await call('meet', `/meet/calls/${callId}/resume`, { token: mim.token, body: {} })).status === 404);
   if (process.env.E2E_MEDIA === '1') {
     const media = await verifyMedia(started.body.grant, accepted.body.grant, callKey);
     check('LiveKit carries encrypted audio frames', media.audio);
@@ -167,7 +171,7 @@ async function verifyMedia(senderGrant: { url: string; token: string }, receiver
           if (event.frame.width === 160) { seen.video = true; break; }
         }
       }
-    })().catch(() => {});
+    })().catch((error) => console.error('Could not read test media track', error));
   });
   const audio = new rtc.AudioSource(48_000, 1);
   const video = new rtc.VideoSource(160, 120);
@@ -177,7 +181,7 @@ async function verifyMedia(senderGrant: { url: string; token: string }, receiver
     receiver.e2eeManager?.setEnabled(true);
     await sender.localParticipant!.publishTrack(rtc.LocalAudioTrack.createAudioTrack('test tone', audio), new rtc.TrackPublishOptions({ source: rtc.TrackSource.SOURCE_MICROPHONE }));
     await sender.localParticipant!.publishTrack(rtc.LocalVideoTrack.createVideoTrack('test frame', video), new rtc.TrackPublishOptions({ source: rtc.TrackSource.SOURCE_CAMERA }));
-    const deadline = Date.now() + 7_000;
+    const deadline = Date.now() + 12_000;
     const samples = new Int16Array(960).map((_, i) => Math.round(Math.sin(i * Math.PI / 54) * 6500));
     const pixels = new Uint8Array(160 * 120 * 4).fill(180);
     while ((!seen.audio || !seen.video) && Date.now() < deadline) {

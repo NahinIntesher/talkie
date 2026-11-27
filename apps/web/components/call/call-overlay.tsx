@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import clsx from 'clsx';
-import { Lock, Maximize2, Mic, MicOff, Minimize2, MonitorUp, Phone, PhoneOff, RefreshCcw, Video, VideoOff } from 'lucide-react';
+import { Lock, Maximize2, Mic, MicOff, Minimize2, MonitorUp, Phone, PhoneOff, PictureInPicture2, RefreshCcw, Video, VideoOff } from 'lucide-react';
 import { Track, type Participant } from 'livekit-client';
 import type { CallInfo } from '@talkie/contracts';
 import { Avatar } from '@/components/ui/primitives';
@@ -12,6 +12,8 @@ import { nameOf, useChat } from '@/lib/chat/store';
 import { accept, decline, hangUp, setMinimized, switchCamera, toggleCamera, toggleMic, toggleScreen, useCall } from '@/lib/call/engine';
 import { VideoTile } from './video-tile';
 import { RoomAudio } from './room-audio';
+import { leaveRecoverable, resumeCall } from '@/lib/call/engine';
+import { useToast } from '@/components/ui/toast';
 
 const copy = {
   en: {
@@ -71,10 +73,28 @@ const clock = (ms: number) => {
 };
 
 export function CallOverlay() {
-  const { session, incoming } = useCall();
+  const { session, incoming, recoverable } = useCall();
+  const { locale } = useI18n();
+  const toast = useToast();
+  const expandedId = session && !session.minimized && session.phase !== 'ended' ? session.info.id : null;
+  useEffect(() => {
+    if (!expandedId) return;
+    if (history.state?.talkieCall !== expandedId) history.pushState({ ...history.state, talkieCall: expandedId }, '');
+    const back = () => setMinimized(true);
+    window.addEventListener('popstate', back);
+    return () => {
+      window.removeEventListener('popstate', back);
+      if (history.state?.talkieCall === expandedId) history.back();
+    };
+  }, [expandedId]);
   return (
     <>
       <RoomAudio room={session?.room ?? null} />
+      {recoverable && !session && !incoming && <aside className="fixed inset-x-3 top-3 z-[110] mx-auto flex max-w-md items-center gap-3 rounded-2xl bg-emerald-950 p-4 text-white shadow-lg">
+        <Phone className="size-5" />
+        <button className="flex-1 text-left font-semibold" onClick={() => void resumeCall().then(error => error && toast(error, 'error'))}>{locale === 'bn' ? 'চলমান কলে ফিরুন' : 'Rejoin ongoing call'}</button>
+        <button aria-label={copy[locale].end} onClick={() => void leaveRecoverable().catch(() => toast(copy[locale].ended.failed!, 'error'))}><PhoneOff className="size-5" /></button>
+      </aside>}
       <AnimatePresence>{incoming && !session && <IncomingCall key={incoming.id} incoming={incoming} />}</AnimatePresence>
       <AnimatePresence>{session && <ActiveCall key={session.info.id} />}</AnimatePresence>
     </>
@@ -162,6 +182,7 @@ function ActiveCall() {
   const chat = useChat();
   const session = useLastSession();
   const { info, room, phase } = session;
+  const stage = useRef<HTMLDivElement>(null);
   const elapsed = useElapsed(phase === 'active' ? info.answeredAt ?? info.createdAt : null);
   const me = chat.me?.userId;
   const conversation = info.conversationId ? chat.conversations[info.conversationId] : undefined;
@@ -210,13 +231,22 @@ function ActiveCall() {
             {t.encrypted}
           </p>
         </div>
-        <button onClick={() => setMinimized(true)} aria-label={t.minimize} className="inline-flex size-11 items-center justify-center rounded-full bg-white/10 hover:bg-white/20">
-          <Minimize2 className="size-5" />
-        </button>
+        <div className="flex gap-2">
+          {remotes.some(participant => participant.isCameraEnabled) && typeof document !== 'undefined' && document.pictureInPictureEnabled && (
+            <button aria-label={locale === 'bn' ? 'ভাসমান ভিডিও' : 'Picture-in-picture'} title={locale === 'bn' ? 'ভাসমান ভিডিও' : 'Picture-in-picture'}
+              onClick={() => {
+                const video = Array.from(stage.current?.querySelectorAll('video') ?? []).find(element => element.srcObject && !element.muted && element.readyState > 0);
+                if (video) void video.requestPictureInPicture().catch(() => {});
+              }} className="inline-flex size-11 items-center justify-center rounded-full bg-white/10 hover:bg-white/20"><PictureInPicture2 className="size-5" /></button>
+          )}
+          <button onClick={() => setMinimized(true)} aria-label={t.minimize} className="inline-flex size-11 items-center justify-center rounded-full bg-white/10 hover:bg-white/20">
+            <Minimize2 className="size-5" />
+          </button>
+        </div>
       </div>
 
       {/* Stage */}
-      <div className="relative flex-1 overflow-hidden">
+      <div ref={stage} className="relative flex-1 overflow-hidden">
         {screen ? (
           <div className="flex h-full gap-3 p-3 pt-24 pb-28">
             <VideoTile participant={screen} name={`${nameFor(screen)} · ${t.share}`} source={Track.Source.ScreenShare} fit="contain" className="flex-1" />

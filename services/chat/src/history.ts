@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { createPublicKey, diffieHellman, generateKeyPairSync } from 'node:crypto';
 import { z } from 'zod';
 import { caller, type AuthContext } from '@talkie/auth-kit';
 import { fail } from '@talkie/core';
@@ -8,8 +9,10 @@ import type { Context } from './context.ts';
 
 const BATCH_SIZE = 100;
 const target = z.object({ deviceId: id, identityKey: publicKey });
+const purpose = z.enum(['backup', 'restore']).optional();
 const batch = z.object({
   target,
+  purpose,
   keys: z.array(z.object({
     messageId: id,
     nonce: z.string().regex(/^[A-Za-z0-9_-]{32}$/),
@@ -29,12 +32,68 @@ const ELIGIBLE = `FROM message_keys source
 
 export function registerHistoryRoutes(app: FastifyInstance, { db, devices, guards, ids, relay }: Context) {
   const auth = { preHandler: guards.requireAuth };
+  const backupFor = (userId: string) => db.one<z.infer<typeof target>>('SELECT recipient_id AS deviceId, identity_key AS identityKey FROM history_backups WHERE user_id = ?', [userId]);
+  const validationKey = generateKeyPairSync('x25519').privateKey;
+  const requireTrustedDevice = async (me: AuthContext) => {
+    const owned = await devices.forUsers([me.userId], true);
+    const oldest = owned.reduce<string | undefined>((id, d) => !id || BigInt(d.deviceId) < BigInt(id) ? d.deviceId : id, undefined);
+    if (oldest !== me.deviceId) fail('forbidden', 'Use your first signed-in device to manage the recovery key.');
+  };
+
+  app.get('/chat/history/backup', auth, async (request) => {
+    const me = caller(request);
+    const backup = await backupFor(me.userId);
+    const available = !!backup && !(await db.one(`SELECT 1 FROM messages m
+      JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.user_id = ?
+      WHERE m.ciphertext IS NOT NULL AND m.deleted_at IS NULL AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP(3))
+      AND m.id >= cm.cleared_before_message_id AND m.created_at >= cm.joined_at
+      AND (cm.left_at IS NULL OR m.created_at <= cm.left_at)
+      AND NOT EXISTS (SELECT 1 FROM message_hidden h WHERE h.user_id = cm.user_id AND h.message_id = m.id)
+      AND NOT EXISTS (SELECT 1 FROM message_keys k WHERE k.message_id = m.id AND k.device_id = ?) LIMIT 1`, [me.userId, backup.deviceId]));
+    return { backup: backup ?? null, complete: available };
+  });
+  app.put('/chat/history/backup', auth, async (request) => {
+    const me = caller(request);
+    const { identityKey } = z.object({ identityKey: publicKey }).parse(request.body);
+    await requireTrustedDevice(me);
+    try {
+      const bytes = Buffer.from(identityKey, 'base64url');
+      if (bytes.toString('base64url') !== identityKey) throw new Error();
+      const key = createPublicKey({ format: 'der', type: 'spki', key: Buffer.concat([Buffer.from('302a300506032b656e032100', 'hex'), bytes]) });
+      diffieHellman({ privateKey: validationKey, publicKey: key });
+    } catch { return fail('bad_request', 'Invalid recovery key.'); }
+    await db.run('INSERT INTO history_backups (user_id, recipient_id, identity_key) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE user_id = user_id',
+      [me.userId, (BigInt(ids.next()) | (1n << 63n)).toString(), identityKey]);
+    const backup = await backupFor(me.userId);
+    if (backup?.identityKey !== identityKey) fail('conflict', 'This account already has a recovery key. Use the key you saved.');
+    return { backup };
+  });
+  app.delete('/chat/history/backup/:id', auth, async request => {
+    const me = caller(request);
+    const params = z.object({ id }).parse(request.params);
+    await requireTrustedDevice(me);
+    await db.tx(async tx => {
+      const removed = await tx.run('DELETE FROM history_backups WHERE user_id = ? AND recipient_id = ?', [me.userId, params.id]);
+      if (removed.affectedRows) await tx.run('DELETE FROM message_keys WHERE device_id = ?', [params.id]);
+    });
+    return { ok: true };
+  });
 
   const verifyDevices = async (me: AuthContext, destination: z.infer<typeof target>) => {
     const owned = await devices.forUsers([me.userId], true);
     if (destination.deviceId === me.deviceId || !owned.some((d) => d.deviceId === me.deviceId) ||
         !owned.some((d) => d.deviceId === destination.deviceId && d.identityKey === destination.identityKey))
       fail('forbidden', 'History can only be transferred between your active devices.');
+  };
+
+  const sourceFor = async (me: AuthContext, destination: z.infer<typeof target>, mode: z.infer<typeof purpose>) => {
+    if (!mode) { await verifyDevices(me, destination); return me.deviceId; }
+    const backup = await backupFor(me.userId);
+    if (!backup) return fail('not_found', 'No recovery key configured.');
+    if (mode === 'backup' && destination.deviceId === backup.deviceId && destination.identityKey === backup.identityKey) return me.deviceId;
+    if (mode === 'restore' && destination.deviceId === me.deviceId &&
+        (await devices.forUsers([me.userId], true)).some(d => d.deviceId === me.deviceId && d.identityKey === destination.identityKey)) return backup.deviceId;
+    return fail('forbidden', 'This recovery key belongs to a different account or device.');
   };
 
   app.post('/chat/history/requests', auth, async (request) => {
@@ -86,15 +145,15 @@ export function registerHistoryRoutes(app: FastifyInstance, { db, devices, guard
 
   app.get('/chat/history/transfer', auth, async (request) => {
     const me = caller(request);
-    const query = target.extend({ before: id.optional() }).parse(request.query);
-    await verifyDevices(me, query);
+    const query = target.extend({ before: id.optional(), purpose }).parse(request.query);
+    const source = await sourceFor(me, query, query.purpose);
     const rows = await db.query<{ id: string; nonce: Buffer; key_sender: string; sealed_key: Buffer }>(
       `SELECT m.id, m.nonce, COALESCE(source.wrap_device_id, m.sender_device_id) AS key_sender, source.sealed_key
        ${ELIGIBLE}
        AND NOT EXISTS (SELECT 1 FROM message_keys destination WHERE destination.message_id = m.id AND destination.device_id = ?)
        ${query.before ? 'AND source.message_id < ?' : ''}
        ORDER BY source.message_id DESC LIMIT ${BATCH_SIZE}`,
-      [me.userId, me.deviceId, query.deviceId, ...(query.before ? [query.before] : [])],
+      [me.userId, source, query.deviceId, ...(query.before ? [query.before] : [])],
     );
     return {
       keys: rows.map((row) => ({ messageId: row.id, nonce: row.nonce.toString('base64url'), keySenderDeviceId: row.key_sender, sealedKey: row.sealed_key.toString('base64url') })),
@@ -105,13 +164,13 @@ export function registerHistoryRoutes(app: FastifyInstance, { db, devices, guard
   app.post('/chat/history/transfer', auth, async (request) => {
     const me = caller(request);
     const input = batch.parse(request.body);
-    await verifyDevices(me, input.target);
+    const source = await sourceFor(me, input.target, input.purpose);
     const submitted = new Map(input.keys.map((key) => [key.messageId, key]));
     const added = await db.tx(async (tx) => {
       // Lock the message while attaching a wrapper for this version of its ciphertext.
       const rows = await tx.query<{ id: string; nonce: Buffer }>(
         `SELECT m.id, m.nonce ${ELIGIBLE} AND m.id IN (${[...submitted].map(() => '?').join(',')}) ORDER BY m.id FOR UPDATE`,
-        [me.userId, me.deviceId, ...submitted.keys()],
+        [me.userId, source, ...submitted.keys()],
       );
       const valid = rows.filter((row) => row.nonce.toString('base64url') === submitted.get(row.id)!.nonce);
       if (!valid.length) return 0;

@@ -53,6 +53,17 @@ export function createLiveKit(env: LiveKitEnv, log: Logger) {
     configured,
     url: env.LIVEKIT_URL ?? '',
 
+    async connectedUsers(room: string): Promise<Set<string>> {
+      require();
+      try {
+        return new Set((await rooms!.listParticipants(room)).map((p) => p.identity));
+      } catch (error) {
+        // A confirmed missing room is empty. Connectivity/auth failures tell us nothing about its participants.
+        if ((error as { code?: string }).code === 'not_found') return new Set();
+        throw error;
+      }
+    },
+
     /** Install check: are the URL, key and secret accepted by the media server? Never returns secrets. */
     async check(): Promise<string> {
       if (!configured) return 'not configured';

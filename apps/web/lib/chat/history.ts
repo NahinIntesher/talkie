@@ -1,4 +1,4 @@
-import { openSecret, safetyNumber, sealSecret } from '@talkie/e2ee';
+import { openSecret, safetyNumber, sealSecret, recoveryPair, type DeviceKeyPair } from '@talkie/e2ee';
 import { api } from '../api';
 import { deviceKeys, senderKeys } from './keys';
 
@@ -14,24 +14,36 @@ export function historyTransferCode() {
 
 export const historyApprovalCode = (identityKey: string) => safetyNumber(identityKey, identityKey).replaceAll(' ', '').slice(0, 12);
 
-export async function transferHistory(code: string) {
+export async function recoverHistory(code: string, setup: boolean) {
+  const pair = recoveryPair(code);
+  const { backup } = await api<{ backup: { deviceId: string; identityKey: string } | null }>('/chat/history/backup',
+    setup ? { method: 'PUT', body: { identityKey: pair.publicKey } } : {});
+  if (!backup || backup.identityKey !== pair.publicKey) throw new Error('The recovery key does not match this account.');
+  const current = historyTransferCode();
+  if (!current) throw new Error('Your device is still connecting.');
+  const saved = await transferHistory(`${backup.deviceId}.${backup.identityKey}`, 'backup');
+  const restored = await transferHistory(current, 'restore', pair);
+  return { saved, restored };
+}
+
+export async function transferHistory(code: string, purpose?: 'backup' | 'restore', source?: DeviceKeyPair) {
   const match = /^([1-9]\d{0,19})\.([A-Za-z0-9_-]{43})$/.exec(code.trim());
   const current = deviceKeys();
-  if (!match || !current || match[1] === current.deviceId) throw new Error('Use the transfer code from your other device.');
+  if (!match || !current || (!purpose && match[1] === current.deviceId)) throw new Error('Use the transfer code from your other device.');
   const target = { deviceId: match[1]!, identityKey: match[2]! };
   let before: string | null = null;
   let added = 0;
   let unreadable = 0;
   do {
     if (deviceKeys()?.deviceId !== current.deviceId) throw new Error('The source device changed.');
-    const query = new URLSearchParams({ ...target, ...(before ? { before } : {}) });
+    const query = new URLSearchParams({ ...target, ...(purpose ? { purpose } : {}), ...(before ? { before } : {}) });
     const page: TransferPage = await api(`/chat/history/transfer?${query}`);
     const known = await senderKeys(page.keys.map((key) => key.keySenderDeviceId));
     const keys = page.keys.flatMap(({ messageId, nonce, keySenderDeviceId, sealedKey }) => {
       const sender = keySenderDeviceId === current.deviceId ? current.pair.publicKey : known.get(keySenderDeviceId);
       try {
         if (!sender) throw new Error('Missing sender key');
-        const secret = openSecret(sealedKey, sender, current.pair);
+        const secret = openSecret(sealedKey, sender, source ?? current.pair);
         return [{ messageId, nonce, sealedKey: sealSecret(secret, current.pair, [target])[0]!.sealedKey }];
       } catch {
         unreadable++;
@@ -39,11 +51,11 @@ export async function transferHistory(code: string) {
       }
     });
     if (keys.length) {
-      const result = await api<{ added: number }>('/chat/history/transfer', { method: 'POST', body: { target, keys } });
+      const result = await api<{ added: number }>('/chat/history/transfer', { method: 'POST', body: { target, purpose, keys } });
       added += result.added;
     }
     before = page.nextBefore;
   } while (before);
-  await api('/chat/history/requests/complete', { method: 'POST', body: { ...target, transferred: added > 0 } });
+  if (!purpose) await api('/chat/history/requests/complete', { method: 'POST', body: { ...target, transferred: added > 0 } });
   return { added, unreadable };
 }

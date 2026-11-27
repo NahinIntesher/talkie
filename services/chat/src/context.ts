@@ -81,6 +81,16 @@ export interface DeviceDirectory {
   forget(userId: string): void;
 }
 
+export async function messageRecipients(ctx: Context, conversationId: string, fresh = false): Promise<DeviceKey[]> {
+  const members = await activeMemberIds(ctx.db, conversationId);
+  if (!members.length) return [];
+  const [devices, backups] = await Promise.all([
+    ctx.devices.forUsers(members, fresh),
+    ctx.db.query<DeviceKey>(`SELECT user_id AS userId, recipient_id AS deviceId, identity_key AS identityKey FROM history_backups WHERE user_id IN (${members.map(() => '?').join(',')})`, members),
+  ]);
+  return [...devices, ...backups];
+}
+
 export function deviceDirectory(env: ChatEnv): DeviceDirectory {
   const cache = new Map<string, { at: number; devices: DeviceKey[] }>();
   const TTL = 30_000;

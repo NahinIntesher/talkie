@@ -31,6 +31,7 @@ class Meeting extends ChangeNotifier {
   List<Json> participants = [];
   List<Json> messages = [];
   Room? room;
+  DateTime? startedAt;
   EventsListener<RoomEvent>? _listener;
   bool micOn = true;
   bool camOn = true;
@@ -84,6 +85,9 @@ class Meeting extends ChangeNotifier {
   }
 
   Future<void> join() async {
+    if (phase != MeetPhase.lobby) return;
+    phase = MeetPhase.joining;
+    _changed();
     if (micOn && !(await Permission.microphone.request()).isGranted) micOn = false;
     if (camOn && !(await Permission.camera.request()).isGranted) camOn = false;
     phase = MeetPhase.joining;
@@ -138,8 +142,16 @@ class Meeting extends ChangeNotifier {
         }
       })
       ..on<RoomEvent>((_) => _changed());
-    await r.connect(grant['url'] as String, grant['token'] as String);
+    try {
+      await r.connect(grant['url'] as String, grant['token'] as String);
+    } catch (_) {
+      await r.dispose();
+      await api.post(_path('/leave')).catchError((_) => null);
+      rethrow;
+    }
+    if (_disposed) { await r.dispose(); return; }
     room = r;
+    startedAt = DateTime.now();
     phase = MeetPhase.inRoom;
     _changed();
     unawaited(() async {
@@ -199,8 +211,15 @@ class Meeting extends ChangeNotifier {
     if (d['code'] != code) return;
     final state = d['state'];
     if (state == 'admitted' && phase == MeetPhase.waiting) {
-      final r = await api.post(_path('/token'));
-      await _enter(r['grant'] as Json);
+      try {
+        final r = await api.post(_path('/token'));
+        if (!_disposed && phase == MeetPhase.waiting) await _enter(r['grant'] as Json);
+      } catch (e) {
+        if (!_disposed && phase == MeetPhase.waiting) {
+          phase = MeetPhase.lobby;
+          error = '$e';
+        }
+      }
     } else if (state == 'denied') {
       phase = MeetPhase.denied;
     } else if (state == 'removed') {
@@ -283,10 +302,11 @@ class Meeting extends ChangeNotifier {
   Future<void> leave() async {
     _listener?.dispose();
     _listener = null;
-    room?.disconnect();
+    final previous = room;
     room = null;
     phase = MeetPhase.ended;
     _changed();
+    if (previous != null) unawaited(previous.dispose());
     await api.post(_path('/leave')).catchError((_) => null);
   }
 

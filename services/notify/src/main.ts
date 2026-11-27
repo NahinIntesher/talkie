@@ -67,11 +67,11 @@ service.app.post('/internal/email/otp', { preHandler: guards.requireInternal }, 
 /** The device's push token (Firebase Cloud Messaging). */
 service.app.put('/notify/push-token', { preHandler: guards.requireAuth }, async (request) => {
   const auth = caller(request);
-  const input = z.object({ provider: z.enum(['fcm', 'webpush']), token: z.string().min(10).max(1024) }).parse(request.body);
+  const input = z.object({ provider: z.enum(['fcm', 'webpush']), token: z.string().min(10).max(1024), inlineReply: z.boolean().default(false) }).parse(request.body);
   await db.run(
-    `INSERT INTO push_tokens (device_id, user_id, provider, token) VALUES (?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE provider = VALUES(provider), token = VALUES(token), user_id = VALUES(user_id)`,
-    [auth.deviceId, auth.userId, input.provider, input.token],
+    `INSERT INTO push_tokens (device_id, user_id, provider, token, inline_reply) VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE provider = VALUES(provider), token = VALUES(token), user_id = VALUES(user_id), inline_reply = VALUES(inline_reply)`,
+    [auth.deviceId, auth.userId, input.provider, input.token, input.inlineReply],
   );
   return { ok: true };
 });

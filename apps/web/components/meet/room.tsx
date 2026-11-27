@@ -19,6 +19,7 @@ import {
   MonitorUp,
   MoreVertical,
   PhoneOff,
+  PictureInPicture2,
   Radio,
   Send,
   Shapes,
@@ -37,7 +38,7 @@ import { Track, type Participant } from 'livekit-client';
 import { Avatar, Button, Switch } from '@/components/ui/primitives';
 import { Dialog, Menu } from '@/components/ui/overlay';
 import { VideoTile } from '@/components/call/video-tile';
-import { RoomAudio } from '@/components/call/room-audio';
+import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
 import { nameOf, useChat } from '@/lib/chat/store';
 import { timeOf } from '@/lib/chat/strings';
@@ -229,6 +230,7 @@ export function MeetingRoom() {
   const state = useMeet();
   const chat = useChat();
   const { room, meeting, panel } = state;
+  const stage = useRef<HTMLDivElement>(null);
   const [clock, setClock] = useState(() => new Date());
   useEffect(() => {
     const timer = setInterval(() => setClock(new Date()), 15_000);
@@ -256,9 +258,9 @@ export function MeetingRoom() {
 
   return (
     <div className="fixed inset-0 flex flex-col bg-[#0b0c14] text-white">
-      <RoomAudio room={room} />
+      <Link href="/app/meet" className="absolute top-3 right-3 z-20 rounded-full bg-black/60 px-4 py-2 text-sm font-semibold">{locale === 'bn' ? 'ছোট করুন' : 'Minimize'}</Link>
       <div className="flex min-h-0 flex-1">
-        <div className="relative flex min-w-0 flex-1 flex-col">
+        <div ref={stage} className="relative flex min-w-0 flex-1 flex-col">
           {(meeting.recording || state.inBreakout) && (
             <div className="absolute top-3 left-3 z-20 flex gap-2">
               {meeting.recording && (
@@ -315,6 +317,12 @@ export function MeetingRoom() {
               { label: t.activities, icon: <Shapes />, onSelect: () => meet.setPanel('activities') },
               { label: t.controls, icon: <ShieldCheck />, hidden: !host, onSelect: () => meet.setPanel('controls') },
               { label: t.info, icon: <Info />, onSelect: () => meet.setPanel('info') },
+              { label: locale === 'bn' ? 'ভাসমান ভিডিও' : 'Picture-in-picture', icon: <PictureInPicture2 />,
+                hidden: typeof document === 'undefined' || !document.pictureInPictureEnabled,
+                onSelect: () => {
+                  const video = Array.from(stage.current?.querySelectorAll('video') ?? []).find(element => element.srcObject && !element.classList.contains('invisible') && element.readyState > 0);
+                  if (video) void video.requestPictureInPicture().catch(() => meet.notice(locale === 'bn' ? 'ভিডিওকে ছোট করা যায়নি' : 'Picture-in-picture is unavailable'));
+                } },
               { label: t.endAll, icon: <PhoneOff />, danger: true, hidden: !host, onSelect: () => void meet.endForAll() },
             ]}
           />

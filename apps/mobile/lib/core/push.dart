@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -7,6 +8,15 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'api.dart';
+import 'notification_reply.dart';
+
+@pragma('vm:entry-point')
+Future<void> backgroundMessage(RemoteMessage message) async {
+  if (message.data['type'] != 'message' || message.notification != null) return;
+  await Firebase.initializeApp();
+  await Push.instance._local(message.data['locale'] != 'en');
+  await Push.instance._showMessage(message, null);
+}
 
 /// Push notifications through Firebase Cloud Messaging.
 ///
@@ -27,6 +37,7 @@ class Push {
   static const _storage = FlutterSecureStorage();
   static const _permissionAsked = 'talkie.pushPermissionAsked';
   late AndroidNotificationChannel _messages;
+  String? _unsentToken;
 
   /// The chat to open after the person tapped a message notification.
   final ValueNotifier<String?> openConversation = ValueNotifier(null);
@@ -37,13 +48,14 @@ class Push {
   Future<void> init({required bool bangla}) async {
     try {
       await Firebase.initializeApp();
+      FirebaseMessaging.onBackgroundMessage(backgroundMessage);
       await _configureNotifications(bangla);
     } catch (error) {
       debugPrint('Talkie push: could not initialize ($error)');
     }
   }
 
-  Future<void> _configureNotifications(bool bangla) async {
+  Future<void> _local(bool bangla) async {
     _messages = AndroidNotificationChannel(
       'messages',
       bangla ? 'মেসেজ' : 'Messages',
@@ -51,10 +63,28 @@ class Push {
     );
     await _notifications.initialize(
       settings: const InitializationSettings(android: AndroidInitializationSettings('ic_stat_talkie')),
-      onDidReceiveNotificationResponse: (response) => openConversation.value = response.payload,
+      onDidReceiveNotificationResponse: (response) {
+        if (response.actionId == 'reply') { notificationReply(response); return; }
+        _openPayload(response.payload);
+      },
+      onDidReceiveBackgroundNotificationResponse: notificationReply,
     );
+  }
+
+  Future<void> _openPayload(String? payload) async {
+    if (payload == null) return;
+    if (payload.startsWith('{')) {
+      final item = jsonDecode(payload);
+      final stored = await _storage.read(key: 'talkie.device');
+      if (stored == null || item['deviceId'] != null && jsonDecode(stored)['deviceId'] != item['deviceId']) return;
+      openConversation.value = item['conversationId'] as String?;
+    } else { openConversation.value = payload; }
+  }
+
+  Future<void> _configureNotifications(bool bangla) async {
+    await _local(bangla);
     final localLaunch = await _notifications.getNotificationAppLaunchDetails();
-    if (localLaunch?.didNotificationLaunchApp == true) openConversation.value = localLaunch?.notificationResponse?.payload;
+    if (localLaunch?.didNotificationLaunchApp == true) _openPayload(localLaunch?.notificationResponse?.payload);
     final android = _notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     await android?.createNotificationChannel(_messages);
     await android?.createNotificationChannel(AndroidNotificationChannel(
@@ -71,12 +101,16 @@ class Push {
 
   void _opened(RemoteMessage message) {
     // Calls: opening the app is enough, the call screen comes from the live connection.
-    if (message.data['type'] == 'message') openConversation.value = message.data['conversationId'] as String?;
+    if (message.data['type'] == 'message') unawaited(_openPayload(jsonEncode(message.data)));
   }
 
   /// After sign-in: ask for permission and tell the server where to reach this device.
   Future<void> register({required String? Function() openChat, bool requestPermission = true}) async {
-    if (!_ready || _registering || _refresh != null) return;
+    if (!_ready || _registering) return;
+    if (_refresh != null) {
+      if (_unsentToken case final token?) await _send(token);
+      return;
+    }
     _registering = true;
     final session = _session;
     try {
@@ -104,16 +138,23 @@ class Push {
 
   Future<void> _showMessage(RemoteMessage message, String? activeChat) async {
     final id = message.data['conversationId'];
-    final notification = message.notification;
-    if (message.data['type'] != 'message' || id is! String || id == activeChat || notification == null) return;
+    if (message.data['type'] != 'message' || id is! String || id == activeChat) return;
+    final device = message.data['deviceId'];
+    if (device != null) {
+      final saved = await _storage.read(key: 'talkie.device');
+      if (saved == null || jsonDecode(saved)['deviceId'] != device) return;
+    }
+    final reply = message.data['locale'] == 'en' ? 'Reply' : 'উত্তর দিন';
     try {
       await _notifications.show(
         id: id.hashCode & 0x7fffffff,
-        title: notification.title,
-        body: notification.body,
-        payload: id,
+        title: message.notification?.title ?? message.data['title'] as String? ?? 'Talkie',
+        body: message.notification?.body ?? message.data['body'] as String?,
+        payload: jsonEncode({'conversationId': id, 'userId': message.data['userId'], 'deviceId': device, 'locale': message.data['locale']}),
         notificationDetails: NotificationDetails(android: AndroidNotificationDetails(
-          _messages.id, _messages.name, importance: Importance.high, priority: Priority.high,
+          _messages.id, _messages.name, importance: Importance.high, priority: Priority.high, tag: id,
+          category: AndroidNotificationCategory.message,
+          actions: [if (device != null) AndroidNotificationAction('reply', reply, inputs: [AndroidNotificationActionInput(label: reply)])],
         )),
       );
     } catch (error) {
@@ -121,12 +162,19 @@ class Push {
     }
   }
 
-  Future<void> _send(String token) => api.put('/notify/push-token', {'provider': 'fcm', 'token': token}).then((_) {}, onError: (_) {});
+  Future<void> _send(String token) async {
+    _unsentToken = token;
+    try {
+      await api.put('/notify/push-token', {'provider': 'fcm', 'token': token, 'inlineReply': true});
+      if (_unsentToken == token) _unsentToken = null;
+    } catch (_) { /* Retry on resume. */ }
+  }
 
   /// Before sign-out: this device should get nothing for this account any more.
   Future<void> unregister({bool server = true}) async {
     if (!_ready) return;
     _session++;
+    _unsentToken = null;
     await _refresh?.cancel();
     _refresh = null;
     await _foreground?.cancel();

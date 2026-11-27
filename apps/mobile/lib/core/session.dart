@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
+import 'dart:ui';
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -79,7 +81,16 @@ class Session extends ChangeNotifier {
   Future<bool> _refresh() {
     return _refreshing ??= () async {
       final generation = _generation;
+      // The notification action engine and the visible app share secure storage in the same Android process.
+      const lock = 'talkie.auth.refresh';
+      final owner = ReceivePort();
+      var acquired = false;
       try {
+        final deadline = DateTime.now().add(const Duration(seconds: 28));
+        while (!(acquired = IsolateNameServer.registerPortWithName(owner.sendPort, lock))) {
+          if (DateTime.now().isAfter(deadline) || generation != _generation) return false;
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
         final stored = await _storage.read(key: _refreshKey);
         if (stored == null || generation != _generation) return false;
         final record = stored.startsWith('{') ? jsonDecode(stored) as Map<String, dynamic> : {'token': stored};
@@ -96,6 +107,8 @@ class Session extends ChangeNotifier {
       } catch (_) {
         return false;
       } finally {
+        if (acquired) IsolateNameServer.removePortNameMapping(lock);
+        owner.close();
         scheduleMicrotask(() => _refreshing = null);
       }
     }();

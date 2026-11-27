@@ -6,6 +6,7 @@ import { isDuplicate, type Executor } from '@talkie/db';
 import * as contract from '@talkie/contracts';
 import {
   activeMemberIds,
+  messageRecipients,
   decode,
   emit,
   isAdmin,
@@ -29,7 +30,7 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: Context) {
    * When the device list changed since the client fetched it, the client gets the current list and re-encrypts.
    */
   const checkKeys = async (conversationId: string, me: AuthContext, keys: Array<{ deviceId: string; sealedKey: string }>) => {
-    const devices = await ctx.devices.forUsers(await activeMemberIds(db, conversationId));
+    const devices = await messageRecipients(ctx, conversationId);
     const given = new Set(keys.map((key) => key.deviceId));
     const required = devices.filter((device) => device.deviceId !== me.deviceId);
     if (required.some((device) => !given.has(device.deviceId)))

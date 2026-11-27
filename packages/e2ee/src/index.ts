@@ -51,6 +51,13 @@ export function generateDeviceKeys(): DeviceKeyPair {
   return { publicKey: b64(pair.publicKey), secretKey: b64(pair.privateKey) };
 }
 
+export const newRecoveryCode = () => 'TK1.' + b64(sodium.randombytes_buf(sodium.crypto_box_SEEDBYTES));
+export function recoveryPair(code: string): DeviceKeyPair {
+  if (!/^TK1\.[A-Za-z0-9_-]{43}$/.test(code.trim())) throw new Error('Invalid recovery key');
+  const pair = sodium.crypto_box_seed_keypair(unb64(code.trim().slice(4)));
+  return { publicKey: b64(pair.publicKey), secretKey: b64(pair.privateKey) };
+}
+
 /** Encrypts `body` once and seals its key for every recipient device. */
 export function seal(body: MessageBody, sender: DeviceKeyPair, recipients: Recipient[]): Sealed {
   const key = sodium.crypto_aead_xchacha20poly1305_ietf_keygen();

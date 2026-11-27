@@ -5,7 +5,9 @@ import { motion } from 'motion/react';
 import clsx from 'clsx';
 import { Camera, Globe, Laptop, Loader2, LogOut, Monitor, Moon, Palette, Shield, Smartphone, Sun, Trash2, User } from 'lucide-react';
 import { uploadPhoto } from '@/lib/chat/media';
-import { historyApprovalCode, historyTransferCode, transferHistory } from '@/lib/chat/history';
+import { historyApprovalCode, historyTransferCode, transferHistory, recoverHistory } from '@/lib/chat/history';
+import { ready, newRecoveryCode } from '@talkie/e2ee';
+import { loadConversations } from '@/lib/chat/engine';
 import { about as aboutRule, displayName as displayNameRule, type DeviceInfo, type PrivacyAudience, type PrivacyKey } from '@talkie/contracts';
 import { Avatar, Button, Segmented, Switch, TextField } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
@@ -57,8 +59,8 @@ export default function SettingsPage() {
           {section === 'privacy' && <PrivacySection />}
           {section === 'devices' && (
             <div className="space-y-6">
-              <DevicesSection />
               <HistorySection />
+              <DevicesSection />
             </div>
           )}
           {section === 'appearance' && <AppearanceSection />}
@@ -253,8 +255,10 @@ function DevicesSection() {
   }, []);
 
   const remove = async (device: DeviceInfo) => {
+    const backup = await api<{ complete: boolean }>('/chat/history/backup').catch(() => null);
+    const warning = backup?.complete ? '' : locale === 'bn' ? '\n\nপুরোনো চ্যাটের ব্যাকআপ অসম্পূর্ণ হতে পারে।' : '\n\nSome chats may still need this device. Check your backup first.';
+    if (!window.confirm((locale === 'bn' ? `${device.name} থেকে সাইন আউট করবেন?` : `Sign out ${device.name}?`) + warning)) return;
     if (device.current) return void signOut();
-    if (!window.confirm(locale === 'bn' ? `${device.name} থেকে সাইন আউট করবেন?` : `Sign out ${device.name}?`)) return;
     try {
       await api(`/auth/devices/${device.id}`, { method: 'DELETE' });
       setDevices((list) => list?.filter((d) => d.id !== device.id) ?? null);
@@ -304,6 +308,36 @@ function HistorySection() {
   const [incoming, setIncoming] = useState<Array<{ deviceId: string; identityKey: string; name: string }>>([]);
   const historyText = (bn: string, en: string) => locale === 'bn' ? bn : en;
   const ownKey = historyTransferCode()?.split('.')[1];
+  const [mode, setMode] = useState<'create' | 'restore' | null>(null);
+  const [key, setKey] = useState('');
+  const [backup, setBackup] = useState<{ deviceId: string } | null>(null);
+  const [backupComplete, setBackupComplete] = useState(false);
+  const refreshBackup = async () => {
+    const data = await api<{ backup: { deviceId: string } | null; complete: boolean }>('/chat/history/backup');
+    setBackup(data.backup); setBackupComplete(data.complete);
+    return data.backup;
+  };
+  const begin = async () => {
+    try {
+      const backup = await refreshBackup();
+      await ready();
+      setKey(backup ? '' : newRecoveryCode());
+      setMode(backup ? 'restore' : 'create');
+    } catch { toast(t.errors.generic, 'error'); }
+  };
+  const runBackup = async () => {
+    setTransferring(true);
+    try {
+      const { saved, restored } = await recoverHistory(key.trim(), mode === 'create');
+      await loadConversations();
+      await refreshBackup();
+      toast(saved.unreadable || restored.unreadable ? historyText('কিছু বার্তার জন্য যে ডিভাইসে সেগুলো দেখা যায় সেখানে একই কী ব্যবহার করুন।', 'Use the same key on a device that can read the remaining messages.')
+        : mode === 'create' ? historyText('চ্যাট ব্যাকআপ হয়েছে। নতুন বার্তাও সংরক্ষিত হবে।', 'Readable chats backed up. New messages are protected automatically.')
+        : historyText(`${restored.added}টি বার্তা ফিরেছে।`, `${restored.added} messages restored.`));
+      setKey(''); setMode(null);
+    } catch { toast(historyText('সম্পূর্ণ হয়নি। সংরক্ষিত কী ও সংযোগ যাচাই করে আবার চেষ্টা করুন।', 'Could not finish. Check your saved key and connection, then retry.'), 'error'); }
+    finally { setTransferring(false); }
+  };
 
   const loadRequests = async () => {
     const [requests, devices] = await Promise.all([
@@ -317,7 +351,7 @@ function HistorySection() {
     }));
   };
 
-  useEffect(() => { void loadRequests().catch(() => {}); }, []);
+  useEffect(() => { void loadRequests().catch(() => {}); void refreshBackup().catch(() => {}); }, []);
 
   const requestHistory = async () => {
     try {
@@ -357,6 +391,23 @@ function HistorySection() {
   return (
     <Panel title={historyText('এনক্রিপ্ট করা চ্যাট ইতিহাস', 'Encrypted chat history')}>
       <div className="space-y-3">
+        <p className="text-sm text-muted">{historyText('পুরোনো ফোন ছাড়াই চ্যাট পেতে আপনার রিকভারি কী পাসওয়ার্ড ম্যানেজারে সংরক্ষণ করুন।', 'Save your recovery key in your password manager to restore chats without your old device.')}</p>
+        {backup && <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className={backupComplete ? 'text-success' : 'text-muted'}>{backupComplete ? historyText('চ্যাট ব্যাকআপ সম্পূর্ণ', 'Chat backup complete') : historyText('কিছু বার্তার ব্যাকআপ বাকি', 'Some messages still need backup')}</span>
+          <Button size="sm" variant="ghost" disabled={transferring} onClick={async () => {
+            if (!window.confirm(historyText('রিকভারি কী ও এর ব্যাকআপ সরাবেন? ডিভাইসে থাকা চ্যাট থাকবে।', 'Remove this key and its backup? Chats on signed-in devices stay available.'))) return;
+            try { await api(`/chat/history/backup/${backup.deviceId}`, { method: 'DELETE' }); setMode(null); setKey(''); await refreshBackup(); }
+            catch (error) { toast(error instanceof ApiError ? error.message : t.errors.generic, 'error'); }
+          }}>{historyText('ব্যাকআপ সরান', 'Remove backup')}</Button>
+        </div>}
+        {!mode ? <Button onClick={() => void begin()}>{historyText('ব্যাকআপ ও রিকভারি', 'Back up or restore')}</Button> : <div className="space-y-3">
+          {mode === 'create' ? <><code className="block break-all rounded-xl bg-surface-2 p-3 select-all">{key}</code>
+            <Button variant="ghost" onClick={() => void navigator.clipboard.writeText(key).then(() => toast(historyText('কপি হয়েছে', 'Key copied'))).catch(() => toast(t.errors.generic, 'error'))}>{historyText('কী কপি করুন', 'Copy key')}</Button></>
+            : <TextField label={historyText('সংরক্ষিত রিকভারি কী', 'Saved recovery key')} value={key} onChange={e => setKey(e.target.value)} autoComplete="off" spellCheck={false} />}
+          <Button disabled={transferring || !key} onClick={() => void runBackup()}>{transferring ? historyText('চলছে…', 'Working…') : mode === 'create' ? historyText('কী সংরক্ষণ করেছি', 'I saved my key') : historyText('চ্যাট ফিরিয়ে আনুন', 'Restore chats')}</Button>
+          <Button variant="ghost" disabled={transferring} onClick={() => { setMode(null); setKey(''); }}>{historyText('বাতিল', 'Cancel')}</Button>
+        </div>}
+        <details open={pending || incoming.length > 0 || undefined}><summary className="cursor-pointer py-2 font-semibold">{historyText('রিকভারি কী নেই? অন্য ডিভাইস ব্যবহার করুন', 'No recovery key? Use another device')}</summary>
         <p className="text-sm text-muted">{historyText('নতুন ডিভাইসে অনুরোধ পাঠিয়ে আপনার চেনা পুরোনো ডিভাইস থেকে অনুমোদন দিন।', 'Request history here, then approve it from a trusted older device.')}</p>
         {pending && ownKey && <p className="text-sm text-muted">{historyText('এই ডিভাইসের যাচাই কোড', 'This device’s verification code')} <code className="font-bold text-text">{historyApprovalCode(ownKey)}</code></p>}
         <div className="flex flex-wrap gap-2">
@@ -382,6 +433,7 @@ function HistorySection() {
           <TextField label={historyText('অন্য ডিভাইসের কোড', 'Other device’s code')} value={transferCode} onChange={(event) => setTransferCode(event.target.value)} autoCapitalize="none" spellCheck={false} disabled={transferring} />
           <Button type="submit" disabled={transferring || !transferCode.trim()}>{transferring ? historyText('পাঠানো হচ্ছে…', 'Transferring…') : historyText('চ্যাট ইতিহাস পাঠান', 'Send chat history')}</Button>
         </form>
+        </details>
       </div>
     </Panel>
   );
