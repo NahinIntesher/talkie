@@ -919,21 +919,21 @@ function createFcm(account2, log) {
         return `rejected: ${String(error?.message ?? error).slice(0, 120)}`;
       }
     },
-    async send(deviceToken, message) {
+    async send(deviceToken, message, inlineReply = false) {
       const payload = {
         message: {
           token: deviceToken,
-          notification: { title: message.title, body: message.body },
-          data: message.data,
+          ...!inlineReply ? { notification: { title: message.title, body: message.body } } : {},
+          data: { ...message.data, title: message.title, body: message.body, ...message.link ? { link: message.link } : {} },
           android: {
-            priority: message.urgent ? "HIGH" : "NORMAL",
+            priority: "HIGH",
             ttl: `${message.ttlSeconds ?? 86400}s`,
             ...message.tag ? { collapse_key: message.tag } : {},
-            notification: {
+            ...!inlineReply ? { notification: {
               channel_id: message.channel,
               ...message.tag ? { tag: message.tag } : {},
               default_sound: true
-            }
+            } } : {}
           },
           webpush: {
             headers: { Urgency: message.urgent ? "high" : "normal", TTL: String(message.ttlSeconds ?? 86400) },
@@ -1009,14 +1009,15 @@ function pushHandlers({ origin, db: db2, fcm: fcm2, log, profiles }) {
   const deliver = async (userIds, build) => {
     if (!userIds.length) return;
     const tokens = await db2.query(
-      `SELECT device_id, user_id, token FROM push_tokens WHERE provider = 'fcm' AND user_id IN (${placeholders(userIds)})`,
+      `SELECT device_id, user_id, token, inline_reply FROM push_tokens WHERE provider = 'fcm' AND user_id IN (${placeholders(userIds)})`,
       userIds
     );
     await Promise.all(
       tokens.map(async (row) => {
         const message = build(row.user_id);
         if (!message) return;
-        const result = await fcm2.send(row.token, message);
+        message.data = { ...message.data, deviceId: row.device_id, userId: row.user_id };
+        const result = await fcm2.send(row.token, message, !!row.inline_reply && message.channel === "messages");
         if (result === "invalid_token") await db2.run("DELETE FROM push_tokens WHERE device_id = ? AND token = ?", [row.device_id, row.token]);
       })
     );
@@ -1041,7 +1042,7 @@ function pushHandlers({ origin, db: db2, fcm: fcm2, log, profiles }) {
         return {
           title: preview ? group ?? sender : "Talkie",
           body: preview ? group ? `${sender}: ${what}` : what : w.hidden,
-          data: { type: "message", conversationId: p.conversationId, messageId: p.messageId },
+          data: { type: "message", conversationId: p.conversationId, messageId: p.messageId, locale: byId.get(userId)?.locale ?? "bn" },
           channel: "messages",
           tag: p.conversationId,
           link: `${origin}/app?c=${p.conversationId}`
@@ -1133,11 +1134,11 @@ service.app.post("/internal/email/otp", { preHandler: guards.requireInternal }, 
 });
 service.app.put("/notify/push-token", { preHandler: guards.requireAuth }, async (request) => {
   const auth = caller(request);
-  const input = z3.object({ provider: z3.enum(["fcm", "webpush"]), token: z3.string().min(10).max(1024) }).parse(request.body);
+  const input = z3.object({ provider: z3.enum(["fcm", "webpush"]), token: z3.string().min(10).max(1024), inlineReply: z3.boolean().default(false) }).parse(request.body);
   await db.run(
-    `INSERT INTO push_tokens (device_id, user_id, provider, token) VALUES (?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE provider = VALUES(provider), token = VALUES(token), user_id = VALUES(user_id)`,
-    [auth.deviceId, auth.userId, input.provider, input.token]
+    `INSERT INTO push_tokens (device_id, user_id, provider, token, inline_reply) VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE provider = VALUES(provider), token = VALUES(token), user_id = VALUES(user_id), inline_reply = VALUES(inline_reply)`,
+    [auth.deviceId, auth.userId, input.provider, input.token, input.inlineReply]
   );
   return { ok: true };
 });

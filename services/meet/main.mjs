@@ -782,6 +782,15 @@ function createLiveKit(env2, log) {
   return {
     configured,
     url: env2.LIVEKIT_URL ?? "",
+    async connectedUsers(room) {
+      require2();
+      try {
+        return new Set((await rooms.listParticipants(room)).map((p) => p.identity));
+      } catch (error) {
+        if (error.code === "not_found") return /* @__PURE__ */ new Set();
+        throw error;
+      }
+    },
     /** Install check: are the URL, key and secret accepted by the media server? Never returns secrets. */
     async check() {
       if (!configured) return "not configured";
@@ -1072,7 +1081,7 @@ var OPEN = ["ringing", "active"];
 function registerCallRoutes(app, ctx2) {
   const { db: db2, guards: guards2, lk: lk2 } = ctx2;
   const auth = { preHandler: guards2.requireAuth };
-  const participants = (executor, callId) => executor.query("SELECT call_id, user_id, state, joined_at, left_at FROM call_participants WHERE call_id = ? ORDER BY invited_at", [callId]);
+  const participants = (executor, callId) => executor.query("SELECT call_id, user_id, state, joined_at, left_at, joined_device_id FROM call_participants WHERE call_id = ? ORDER BY invited_at", [callId]);
   const view = async (call, me) => {
     const [people, key] = await Promise.all([
       participants(db2, call.id),
@@ -1106,17 +1115,28 @@ function registerCallRoutes(app, ctx2) {
       room: call.room_name,
       identity: me.userId,
       name: await ctx2.services.displayName(me.userId).catch(() => "Talkie"),
-      metadata: { userId: me.userId, callId: call.id },
+      metadata: { userId: me.userId, deviceId: me.deviceId, callId: call.id },
       sources: { camera: true, microphone: true, screen: true, data: true },
-      ttlSeconds: 4 * 3600
+      ttlSeconds: 120
     })
   });
-  const busy = async (userId, exceptCallId) => !!await db2.one(
-    `SELECT 1 FROM call_participants p JOIN calls c ON c.id = p.call_id
-       WHERE p.user_id = ? AND c.id <> ? AND c.state IN ('ringing','active') AND p.state IN ('joined')
-         AND c.created_at > CURRENT_TIMESTAMP(3) - INTERVAL 6 HOUR LIMIT 1`,
+  const busy = (tx, userId, exceptCallId) => tx.one(
+    `SELECT c.id, p.joined_device_id FROM call_participants p JOIN calls c ON c.id = p.call_id
+       WHERE p.user_id = ? AND c.id <> ? AND c.state IN ('ringing','active') AND p.state = 'joined' LIMIT 1`,
     [userId, exceptCallId]
   );
+  const lockUsers = async (tx, ids2) => {
+    for (const id2 of [...new Set(ids2)].sort())
+      await tx.run("INSERT INTO call_user_locks (user_id) VALUES (?) ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)", [id2]);
+  };
+  const checkAvailable = async (tx, me, except = "0") => {
+    const current = await busy(tx, me.userId, except);
+    if (current) fail(
+      "conflict",
+      current.joined_device_id === me.deviceId ? "Return to your ongoing call." : "You have an ongoing call on another device.",
+      current.joined_device_id === me.deviceId ? { currentCallId: current.id } : void 0
+    );
+  };
   const finish = async (tx, call, state) => {
     const updated = await tx.run("UPDATE calls SET state = ?, ended_at = CURRENT_TIMESTAMP(3) WHERE id = ? AND state IN ('ringing','active')", [state, call.id]);
     if (!updated.affectedRows) return false;
@@ -1149,14 +1169,6 @@ function registerCallRoutes(app, ctx2) {
     if (!others.length) fail("bad_request", "There is no one to call.");
     if (others.length + 1 > GROUP_CALL_MAX) fail("bad_request", `Group calls can have up to ${GROUP_CALL_MAX} people.`);
     if (conversation.kind === "direct" && (await ctx2.services.relationships(me.userId, others)).some((r) => r.blocked)) fail("blocked", "You cannot call this person.");
-    if (await busy(me.userId, "0")) fail("conflict", "You are already on a call.");
-    const running = await db2.one("SELECT * FROM calls WHERE conversation_id = ? AND state = 'active' AND created_at > CURRENT_TIMESTAMP(3) - INTERVAL 6 HOUR ORDER BY id DESC LIMIT 1", [input.conversationId]);
-    if (running && conversation.kind === "group") {
-      const current = await view(running, me);
-      if (!current.sealedKey) fail("conflict", "This device cannot join the existing encrypted call.");
-      await db2.run("INSERT INTO call_participants (call_id, user_id, state, joined_at) VALUES (?, ?, 'joined', CURRENT_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE state = 'joined', joined_at = COALESCE(joined_at, CURRENT_TIMESTAMP(3)), left_at = NULL", [running.id, me.userId]);
-      return { call: await view(running, me), grant: await grant(running, me), joinedExisting: true };
-    }
     const devices = await ctx2.services.devices(conversation.memberIds);
     const provided = new Map(input.keys.map((key) => [key.deviceId, key]));
     if (!devices.some((device2) => device2.userId !== me.userId)) fail("conflict", "The other participants have no active device ready for encrypted calls.");
@@ -1167,8 +1179,18 @@ function registerCallRoutes(app, ctx2) {
     allowed.add(me.deviceId);
     const keys = [...provided.values()].filter((key) => allowed.has(key.deviceId));
     const id2 = ctx2.ids.next();
-    const directBusy = conversation.kind === "direct" && await busy(others[0], id2);
     const call = await db2.tx(async (tx) => {
+      await lockUsers(tx, conversation.memberIds);
+      await checkAvailable(tx, me);
+      if (conversation.kind === "group") {
+        const running = await tx.one("SELECT * FROM calls WHERE conversation_id = ? AND state IN ('ringing','active') ORDER BY id DESC LIMIT 1 FOR UPDATE", [input.conversationId]);
+        if (running) {
+          if (!await tx.one("SELECT 1 FROM call_keys WHERE call_id = ? AND device_id = ?", [running.id, me.deviceId])) fail("conflict", "This device cannot join the existing encrypted call.");
+          await joinParticipant(tx, running.id, me);
+          return await tx.one("SELECT * FROM calls WHERE id = ?", [running.id]);
+        }
+      }
+      const directBusy = conversation.kind === "direct" && await busy(tx, others[0], id2);
       await tx.run("INSERT INTO calls (id, conversation_id, initiator_id, media, state, e2ee, key_sender_device_id, room_name) VALUES (?, ?, ?, ?, ?, 1, ?, ?)", [
         id2,
         input.conversationId,
@@ -1178,7 +1200,7 @@ function registerCallRoutes(app, ctx2) {
         me.deviceId,
         `call-${id2}`
       ]);
-      await tx.run("INSERT INTO call_participants (call_id, user_id, state, joined_at) VALUES (?, ?, 'joined', CURRENT_TIMESTAMP(3))", [id2, me.userId]);
+      await tx.run("INSERT INTO call_participants (call_id, user_id, state, joined_device_id, joined_at) VALUES (?, ?, 'joined', ?, CURRENT_TIMESTAMP(3))", [id2, me.userId, me.deviceId]);
       for (const userId of others) await tx.run("INSERT INTO call_participants (call_id, user_id, state) VALUES (?, ?, 'ringing')", [id2, userId]);
       for (const key of keys) await tx.run("INSERT INTO call_keys (call_id, device_id, sealed_key) VALUES (?, ?, ?)", [id2, key.deviceId, decode(key.sealedKey)]);
       const row = await tx.one("SELECT * FROM calls WHERE id = ?", [id2]);
@@ -1192,6 +1214,16 @@ function registerCallRoutes(app, ctx2) {
     reply.status(201);
     return { call: await view(call, me), grant: call.state === "busy" ? null : await grant(call, me) };
   });
+  async function joinParticipant(tx, id2, me) {
+    const member = await tx.one("SELECT state, joined_device_id FROM call_participants WHERE call_id = ? AND user_id = ? FOR UPDATE", [id2, me.userId]);
+    if (member?.state === "joined" && member.joined_device_id && member.joined_device_id !== me.deviceId) fail("conflict", "This call was answered on another device.");
+    await tx.run(
+      "INSERT INTO call_participants (call_id, user_id, state, joined_device_id, joined_at) VALUES (?, ?, 'joined', ?, CURRENT_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE state = 'joined', joined_device_id = VALUES(joined_device_id), joined_at = COALESCE(joined_at, CURRENT_TIMESTAMP(3)), left_at = NULL, media_missing_since = NULL",
+      [id2, me.userId, me.deviceId]
+    );
+    await tx.run("UPDATE calls SET state = 'active', answered_at = COALESCE(answered_at, CURRENT_TIMESTAMP(3)) WHERE id = ? AND state = 'ringing'", [id2]);
+    await emit(tx, ctx2, "call.updated", id2, (await participants(tx, id2)).map((p) => p.user_id), { callId: id2, change: "joined", userId: me.userId });
+  }
   app.post("/meet/calls/:id/accept", auth, async (request) => {
     const me = caller(request);
     const { id: id2 } = z3.object({ id }).parse(request.params);
@@ -1199,13 +1231,12 @@ function registerCallRoutes(app, ctx2) {
     if (!OPEN.includes(call.state)) fail("conflict", "This call has ended.");
     if (call.conversation_id && !(await ctx2.services.conversation(call.conversation_id)).memberIds.includes(me.userId)) fail("not_found", "Call not found.");
     if (!await db2.one("SELECT 1 FROM call_keys WHERE call_id = ? AND device_id = ?", [id2, me.deviceId])) fail("conflict", "This device cannot join this encrypted call.");
-    if (await busy(me.userId, id2)) fail("conflict", "Leave your other call first.");
     await db2.tx(async (tx) => {
+      await lockUsers(tx, [me.userId]);
+      await checkAvailable(tx, me, id2);
       const current = await tx.one("SELECT state FROM calls WHERE id = ? FOR UPDATE", [id2]);
       if (!current || !OPEN.includes(current.state)) fail("conflict", "This call has ended.");
-      await tx.run("UPDATE call_participants SET state = 'joined', joined_at = COALESCE(joined_at, CURRENT_TIMESTAMP(3)), left_at = NULL WHERE call_id = ? AND user_id = ?", [id2, me.userId]);
-      await tx.run("UPDATE calls SET state = 'active', answered_at = COALESCE(answered_at, CURRENT_TIMESTAMP(3)) WHERE id = ? AND state = 'ringing'", [id2]);
-      await emit(tx, ctx2, "call.updated", id2, (await participants(tx, id2)).map((p) => p.user_id), { callId: id2, change: "joined", userId: me.userId });
+      await joinParticipant(tx, id2, me);
     });
     afterCommit();
     const fresh = await db2.one("SELECT * FROM calls WHERE id = ?", [id2]);
@@ -1218,12 +1249,15 @@ function registerCallRoutes(app, ctx2) {
     if (!OPEN.includes(call.state)) return { ok: true };
     let room;
     await db2.tx(async (tx) => {
-      await tx.run("UPDATE call_participants SET state = 'declined' WHERE call_id = ? AND user_id = ? AND state IN ('invited','ringing')", [id2, me.userId]);
+      const fresh = await tx.one("SELECT * FROM calls WHERE id = ? FOR UPDATE", [id2]);
+      if (!fresh || !OPEN.includes(fresh.state)) return;
+      const changed = await tx.run("UPDATE call_participants SET state = 'declined' WHERE call_id = ? AND user_id = ? AND state IN ('invited','ringing')", [id2, me.userId]);
+      if (!changed.affectedRows) return;
       const people = await participants(tx, id2);
       const stillRinging = people.some((p) => p.state === "ringing" || p.state === "invited");
       const others = people.filter((p) => p.user_id !== call.initiator_id && p.state === "joined");
-      if (call.state === "ringing" && !stillRinging && !others.length) {
-        await finish(tx, call, "declined");
+      if (fresh.state === "ringing" && !stillRinging && !others.length) {
+        await finish(tx, fresh, "declined");
         room = call.room_name;
       } else await emit(tx, ctx2, "call.updated", id2, people.map((p) => p.user_id), { callId: id2, change: "declined", userId: me.userId });
     });
@@ -1237,13 +1271,16 @@ function registerCallRoutes(app, ctx2) {
     if (!OPEN.includes(call.state)) return { ok: true };
     let room;
     await db2.tx(async (tx) => {
-      await tx.run("UPDATE call_participants SET state = 'left', left_at = CURRENT_TIMESTAMP(3) WHERE call_id = ? AND user_id = ? AND state = 'joined'", [id2, me.userId]);
+      const fresh = await tx.one("SELECT * FROM calls WHERE id = ? FOR UPDATE", [id2]);
+      if (!fresh || !OPEN.includes(fresh.state)) return;
+      const changed = await tx.run("UPDATE call_participants SET state = 'left', left_at = CURRENT_TIMESTAMP(3) WHERE call_id = ? AND user_id = ? AND state = 'joined' AND (joined_device_id IS NULL OR joined_device_id = ?)", [id2, me.userId, me.deviceId]);
+      if (!changed.affectedRows) return;
       const people = await participants(tx, id2);
       const connected = people.filter((p) => p.state === "joined");
       const direct = people.length === 2;
-      const ends = call.state === "ringing" ? me.userId === call.initiator_id : direct || connected.length < 2;
+      const ends = fresh.state === "ringing" ? me.userId === fresh.initiator_id : direct || connected.length < 2;
       if (ends) {
-        await finish(tx, call, call.state === "ringing" ? "cancelled" : "ended");
+        await finish(tx, fresh, fresh.state === "ringing" ? "cancelled" : "ended");
         room = call.room_name;
       } else await emit(tx, ctx2, "call.updated", id2, people.map((p) => p.user_id), { callId: id2, change: "left", userId: me.userId });
     });
@@ -1258,14 +1295,12 @@ function registerCallRoutes(app, ctx2) {
     const conversation = await ctx2.services.conversation(call.conversation_id);
     if (!conversation.memberIds.includes(me.userId)) fail("not_found", "Call not found.");
     if (!await db2.one("SELECT 1 FROM call_keys WHERE call_id = ? AND device_id = ?", [id2, me.deviceId])) fail("conflict", "This device cannot join this encrypted call.");
-    if (await busy(me.userId, id2)) fail("conflict", "Leave your other call first.");
     await db2.tx(async (tx) => {
-      await tx.run(
-        "INSERT INTO call_participants (call_id, user_id, state, joined_at) VALUES (?, ?, 'joined', CURRENT_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE state = 'joined', joined_at = COALESCE(joined_at, CURRENT_TIMESTAMP(3)), left_at = NULL",
-        [id2, me.userId]
-      );
-      await tx.run("UPDATE calls SET state = 'active', answered_at = COALESCE(answered_at, CURRENT_TIMESTAMP(3)) WHERE id = ? AND state = 'ringing'", [id2]);
-      await emit(tx, ctx2, "call.updated", id2, (await participants(tx, id2)).map((p) => p.user_id), { callId: id2, change: "joined", userId: me.userId });
+      await lockUsers(tx, [me.userId]);
+      await checkAvailable(tx, me, id2);
+      const current = await tx.one("SELECT * FROM calls WHERE id = ? FOR UPDATE", [id2]);
+      if (!current || !OPEN.includes(current.state)) fail("conflict", "This call has ended.");
+      await joinParticipant(tx, id2, me);
     });
     afterCommit();
     const fresh = await db2.one("SELECT * FROM calls WHERE id = ?", [id2]);
@@ -1279,6 +1314,22 @@ function registerCallRoutes(app, ctx2) {
     if (call.key_sender_device_id !== me.deviceId) fail("forbidden", "Only the device that started the call shares its key.");
     for (const key of keys) await db2.run("INSERT IGNORE INTO call_keys (call_id, device_id, sealed_key) VALUES (?, ?, ?)", [id2, key.deviceId, decode(key.sealedKey)]);
     return { ok: true };
+  });
+  app.get("/meet/calls/current", auth, async (request) => {
+    const me = caller(request);
+    const current = await busy(db2, me.userId, "0");
+    return { call: current?.joined_device_id === me.deviceId ? await view(await load(current.id, me), me) : null };
+  });
+  app.post("/meet/calls/:id/resume", auth, async (request) => {
+    const me = caller(request);
+    const { id: id2 } = z3.object({ id }).parse(request.params);
+    const call = await load(id2, me);
+    const current = await busy(db2, me.userId, "0");
+    if (!OPEN.includes(call.state) || current?.id !== id2 || current.joined_device_id !== me.deviceId) fail("conflict", "This device has no ongoing call here.");
+    if (!call.conversation_id || !(await ctx2.services.conversation(call.conversation_id)).memberIds.includes(me.userId)) fail("not_found", "Call not found.");
+    const info = await view(call, me);
+    if (!info.sealedKey) fail("conflict", "This device cannot open the call.");
+    return { call: info, grant: await grant(call, me) };
   });
   app.get("/meet/calls/:id", auth, async (request) => {
     const me = caller(request);
@@ -1304,30 +1355,78 @@ function registerCallRoutes(app, ctx2) {
     );
     return { calls: await Promise.all(rows.map((row) => view(row, me))) };
   });
+  async function reconcile(call) {
+    const claimed = await db2.run("UPDATE calls SET media_checked_at = CURRENT_TIMESTAMP(3) WHERE id = ? AND state = 'active' AND (media_checked_at IS NULL OR media_checked_at < CURRENT_TIMESTAMP(3) - INTERVAL 25 SECOND)", [call.id]);
+    if (!claimed.affectedRows) return;
+    const connected = await lk2.connectedUsers(call.room_name).catch(() => null);
+    if (!connected) return;
+    const ended = await db2.tx(async (tx) => {
+      const current = await tx.one("SELECT * FROM calls WHERE id = ? FOR UPDATE", [call.id]);
+      if (current?.state !== "active") return false;
+      const joined = (await participants(tx, call.id)).filter((p) => p.state === "joined");
+      for (const p of joined) {
+        if (connected.has(p.user_id)) {
+          await tx.run("UPDATE call_participants SET media_missing_since = NULL WHERE call_id = ? AND user_id = ? AND media_missing_since IS NOT NULL", [call.id, p.user_id]);
+        } else {
+          await tx.run("UPDATE call_participants SET media_missing_since = COALESCE(media_missing_since, CURRENT_TIMESTAMP(3)) WHERE call_id = ? AND user_id = ?", [call.id, p.user_id]);
+        }
+      }
+      const left = await tx.run("UPDATE call_participants SET state = 'left', left_at = CURRENT_TIMESTAMP(3) WHERE call_id = ? AND state = 'joined' AND media_missing_since < CURRENT_TIMESTAMP(3) - INTERVAL 60 SECOND", [call.id]);
+      if (!left.affectedRows) return false;
+      if (joined.length - left.affectedRows < 2) return finish(tx, current, "ended");
+      await emit(tx, ctx2, "call.updated", call.id, joined.map((p) => p.user_id), { callId: call.id, change: "left" });
+      return false;
+    });
+    afterCommit(ended ? call.room_name : void 0);
+  }
   const sweep2 = async () => {
     const stale = await db2.query(
-      `SELECT * FROM calls WHERE (state = 'ringing' AND created_at < CURRENT_TIMESTAMP(3) - INTERVAL ${CALL_RING_MS / 1e3} SECOND)
-         OR (state = 'active' AND created_at < CURRENT_TIMESTAMP(3) - INTERVAL 12 HOUR) LIMIT 200`
+      `SELECT * FROM calls WHERE state = 'ringing' AND created_at < CURRENT_TIMESTAMP(3) - INTERVAL ${CALL_RING_MS / 1e3} SECOND LIMIT 200`
     );
     for (const call of stale) {
-      await db2.tx(async (tx) => {
-        if (call.state === "ringing") await finish(tx, call, "missed");
-        else await finish(tx, call, "ended");
+      const ended = await db2.tx(async (tx) => {
+        const current = await tx.one("SELECT * FROM calls WHERE id = ? FOR UPDATE", [call.id]);
+        return current?.state === "ringing" && await finish(tx, current, "missed");
       });
-      afterCommit(call.room_name);
+      if (ended) afterCommit(call.room_name);
     }
     await db2.run(
       `UPDATE call_participants p JOIN calls c ON c.id = p.call_id SET p.state = 'missed'
        WHERE p.state = 'ringing' AND c.state = 'active' AND c.created_at < CURRENT_TIMESTAMP(3) - INTERVAL ${CALL_RING_MS / 1e3} SECOND`
     );
+    if (lk2.configured) {
+      const active = await db2.query("SELECT * FROM calls WHERE state = 'active' AND answered_at < CURRENT_TIMESTAMP(3) - INTERVAL 20 SECOND AND (media_checked_at IS NULL OR media_checked_at < CURRENT_TIMESTAMP(3) - INTERVAL 25 SECOND) ORDER BY media_checked_at, id LIMIT 16");
+      await Promise.all(active.map(reconcile));
+    }
   };
   const roomFinished = async (roomName) => {
     const call = await db2.one("SELECT * FROM calls WHERE room_name = ? AND state IN ('ringing','active')", [roomName]);
     if (!call) return;
+    if (call.state === "active") {
+      await reconcile(call);
+      return;
+    }
     await db2.tx((tx) => finish(tx, call, call.state === "ringing" ? "missed" : "ended"));
     afterCommit(call.room_name);
   };
-  return { sweep: sweep2, finish, roomFinished };
+  async function revokeDevice(deviceId) {
+    const rows = await db2.query("SELECT c.id, c.room_name, p.user_id FROM calls c JOIN call_participants p ON p.call_id = c.id WHERE p.joined_device_id = ? AND p.state = 'joined' AND c.state IN ('active','ringing')", [deviceId]);
+    for (const row of rows) {
+      const ended = await db2.tx(async (tx) => {
+        const call = await tx.one("SELECT * FROM calls WHERE id = ? FOR UPDATE", [row.id]);
+        if (!call || !OPEN.includes(call.state)) return false;
+        const updated = await tx.run("UPDATE call_participants SET state = 'left', left_at = CURRENT_TIMESTAMP(3) WHERE call_id = ? AND user_id = ? AND joined_device_id = ? AND state = 'joined'", [row.id, row.user_id, deviceId]);
+        if (!updated.affectedRows) return false;
+        const people = await participants(tx, row.id);
+        if (people.filter((p) => p.state === "joined").length < 2) return finish(tx, call, call.state === "ringing" ? "cancelled" : "ended");
+        await emit(tx, ctx2, "call.updated", row.id, people.map((p) => p.user_id), { callId: row.id, change: "left", userId: row.user_id });
+        return false;
+      });
+      if (!ended) await lk2.remove(row.room_name, row.user_id);
+      afterCommit(ended ? row.room_name : void 0);
+    }
+  }
+  return { sweep: sweep2, finish, roomFinished, revokeDevice };
 }
 
 // services/meet/src/meetings.ts
@@ -2120,6 +2219,10 @@ if (!lk.configured) service.log.warn("LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_AP
 service.app.addContentTypeParser("application/webhook+json", { parseAs: "string" }, (_request, body, done) => done(null, body));
 var ctx = { db, ids, relay, guards, lk, env, services: services(env) };
 var calls = registerCallRoutes(service.app, ctx);
+bus.subscribe("meet-call-revocations", ["device.revoked"], async (event) => {
+  const { deviceId } = event.payload;
+  await calls.revokeDevice(deviceId);
+});
 registerMeetingRoutes(service.app, ctx, { callRoomFinished: calls.roomFinished });
 registerAdminRoutes(service.app, ctx);
 service.app.get("/internal/selfcheck", { preHandler: guards.requireInternal }, async () => ({ livekit: await lk.check() }));

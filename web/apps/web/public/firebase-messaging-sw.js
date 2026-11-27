@@ -16,11 +16,15 @@ self.addEventListener('push', (event) => {
   }
   const notification = payload.notification || {};
   const data = payload.data || {};
-  const link = (payload.fcmOptions && payload.fcmOptions.link) || data.link || '/app';
+  const link = data.type === 'message' && /^[1-9]\d{0,19}$/.test(data.conversationId) ? '/app?c=' + data.conversationId : '/app';
   event.waitUntil(
     (async () => {
       const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      if (windows.some((client) => client.focused && client.visibilityState === 'visible')) return;
+      const focused = windows.find(client => client.focused && client.visibilityState === 'visible');
+      if (focused) {
+        if (data.type === 'message') focused.postMessage({ ...data, title: data.title || notification.title, body: data.body || notification.body, action: 'banner' });
+        return;
+      }
       await self.registration.showNotification(notification.title || 'Talkie', {
         body: notification.body || '',
         icon: notification.icon || '/icon.svg',
@@ -28,7 +32,8 @@ self.addEventListener('push', (event) => {
         tag: notification.tag || data.conversationId || data.callId,
         renotify: !!(notification.tag || data.conversationId),
         requireInteraction: data.type === 'call',
-        data: { link, ...data },
+        actions: data.type === 'message' ? [{ action: 'reply', title: data.locale === 'en' ? 'Reply' : 'উত্তর দিন' }] : [],
+        data: { ...data, link },
       });
     })(),
   );
@@ -37,13 +42,14 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const target = new URL(event.notification.data?.link || '/app', self.location.origin);
+  if (target.origin !== self.location.origin) return;
   event.waitUntil(
     (async () => {
       const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       const existing = windows.find((client) => new URL(client.url).origin === target.origin);
-      if (existing) {
+      if (existing && event.notification.data?.type === 'message' && event.notification.data?.deviceId && new URL(existing.url).pathname.startsWith('/app')) {
         await existing.focus();
-        if ('navigate' in existing) await existing.navigate(target.href);
+        existing.postMessage({ ...event.notification.data, action: event.action === 'reply' ? 'reply' : 'open' });
         return;
       }
       await self.clients.openWindow(target.href);

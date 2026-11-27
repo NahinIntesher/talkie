@@ -788,6 +788,15 @@ var mediaClient = (env2) => ({
 var usersClient = (env2) => ({
   relationships: async (userId, otherIds) => (await internal(env2, `${env2.USERS_URL}/internal/relationships`, { userId, otherIds })).relationships
 });
+async function messageRecipients(ctx2, conversationId, fresh = false) {
+  const members = await activeMemberIds(ctx2.db, conversationId);
+  if (!members.length) return [];
+  const [devices, backups] = await Promise.all([
+    ctx2.devices.forUsers(members, fresh),
+    ctx2.db.query(`SELECT user_id AS userId, recipient_id AS deviceId, identity_key AS identityKey FROM history_backups WHERE user_id IN (${members.map(() => "?").join(",")})`, members)
+  ]);
+  return [...devices, ...backups];
+}
 function deviceDirectory(env2) {
   const cache = /* @__PURE__ */ new Map();
   const TTL = 3e4;
@@ -1308,9 +1317,9 @@ function registerConversationRoutes(app, ctx2) {
   app.get("/chat/conversations/:id/devices", auth, async (request) => {
     const me = caller(request);
     const { id: id2 } = z4.object({ id }).parse(request.params);
-    const { fresh } = z4.object({ fresh: z4.literal("1").optional() }).parse(request.query);
+    const { fresh, media } = z4.object({ fresh: z4.literal("1").optional(), media: z4.literal("1").optional() }).parse(request.query);
     await membership(db2, id2, me.userId);
-    return { devices: await ctx2.devices.forUsers(await activeMemberIds(db2, id2), fresh === "1") };
+    return { devices: media ? await ctx2.devices.forUsers(await activeMemberIds(db2, id2), fresh === "1") : await messageRecipients(ctx2, id2, fresh === "1") };
   });
   app.post("/chat/conversations/direct", auth, async (request) => {
     const me = caller(request);
@@ -1665,7 +1674,7 @@ function registerMessageRoutes(app, ctx2) {
   const { db: db2, guards: guards2 } = ctx2;
   const auth = { preHandler: guards2.requireAuth };
   const checkKeys = async (conversationId, me, keys) => {
-    const devices = await ctx2.devices.forUsers(await activeMemberIds(db2, conversationId));
+    const devices = await messageRecipients(ctx2, conversationId);
     const given = new Set(keys.map((key) => key.deviceId));
     const required = devices.filter((device2) => device2.deviceId !== me.deviceId);
     if (required.some((device2) => !given.has(device2.deviceId)))
@@ -1991,11 +2000,14 @@ function registerMessageRoutes(app, ctx2) {
 }
 
 // services/chat/src/history.ts
+import { createPublicKey, diffieHellman, generateKeyPairSync } from "node:crypto";
 import { z as z6 } from "zod";
 var BATCH_SIZE = 100;
 var target = z6.object({ deviceId: id, identityKey: publicKey });
+var purpose = z6.enum(["backup", "restore"]).optional();
 var batch = z6.object({
   target,
+  purpose,
   keys: z6.array(z6.object({
     messageId: id,
     nonce: z6.string().regex(/^[A-Za-z0-9_-]{32}$/),
@@ -2012,10 +2024,70 @@ var ELIGIBLE = `FROM message_keys source
     AND NOT EXISTS (SELECT 1 FROM message_hidden h WHERE h.user_id = cm.user_id AND h.message_id = m.id)`;
 function registerHistoryRoutes(app, { db: db2, devices, guards: guards2, ids: ids2, relay: relay2 }) {
   const auth = { preHandler: guards2.requireAuth };
+  const backupFor = (userId) => db2.one("SELECT recipient_id AS deviceId, identity_key AS identityKey FROM history_backups WHERE user_id = ?", [userId]);
+  const validationKey = generateKeyPairSync("x25519").privateKey;
+  const requireTrustedDevice = async (me) => {
+    const owned = await devices.forUsers([me.userId], true);
+    const oldest = owned.reduce((id2, d) => !id2 || BigInt(d.deviceId) < BigInt(id2) ? d.deviceId : id2, void 0);
+    if (oldest !== me.deviceId) fail("forbidden", "Use your first signed-in device to manage the recovery key.");
+  };
+  app.get("/chat/history/backup", auth, async (request) => {
+    const me = caller(request);
+    const backup = await backupFor(me.userId);
+    const available = !!backup && !await db2.one(`SELECT 1 FROM messages m
+      JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.user_id = ?
+      WHERE m.ciphertext IS NOT NULL AND m.deleted_at IS NULL AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP(3))
+      AND m.id >= cm.cleared_before_message_id AND m.created_at >= cm.joined_at
+      AND (cm.left_at IS NULL OR m.created_at <= cm.left_at)
+      AND NOT EXISTS (SELECT 1 FROM message_hidden h WHERE h.user_id = cm.user_id AND h.message_id = m.id)
+      AND NOT EXISTS (SELECT 1 FROM message_keys k WHERE k.message_id = m.id AND k.device_id = ?) LIMIT 1`, [me.userId, backup.deviceId]);
+    return { backup: backup ?? null, complete: available };
+  });
+  app.put("/chat/history/backup", auth, async (request) => {
+    const me = caller(request);
+    const { identityKey } = z6.object({ identityKey: publicKey }).parse(request.body);
+    await requireTrustedDevice(me);
+    try {
+      const bytes = Buffer.from(identityKey, "base64url");
+      if (bytes.toString("base64url") !== identityKey) throw new Error();
+      const key = createPublicKey({ format: "der", type: "spki", key: Buffer.concat([Buffer.from("302a300506032b656e032100", "hex"), bytes]) });
+      diffieHellman({ privateKey: validationKey, publicKey: key });
+    } catch {
+      return fail("bad_request", "Invalid recovery key.");
+    }
+    await db2.run(
+      "INSERT INTO history_backups (user_id, recipient_id, identity_key) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE user_id = user_id",
+      [me.userId, (BigInt(ids2.next()) | 1n << 63n).toString(), identityKey]
+    );
+    const backup = await backupFor(me.userId);
+    if (backup?.identityKey !== identityKey) fail("conflict", "This account already has a recovery key. Use the key you saved.");
+    return { backup };
+  });
+  app.delete("/chat/history/backup/:id", auth, async (request) => {
+    const me = caller(request);
+    const params = z6.object({ id }).parse(request.params);
+    await requireTrustedDevice(me);
+    await db2.tx(async (tx) => {
+      const removed = await tx.run("DELETE FROM history_backups WHERE user_id = ? AND recipient_id = ?", [me.userId, params.id]);
+      if (removed.affectedRows) await tx.run("DELETE FROM message_keys WHERE device_id = ?", [params.id]);
+    });
+    return { ok: true };
+  });
   const verifyDevices = async (me, destination) => {
     const owned = await devices.forUsers([me.userId], true);
     if (destination.deviceId === me.deviceId || !owned.some((d) => d.deviceId === me.deviceId) || !owned.some((d) => d.deviceId === destination.deviceId && d.identityKey === destination.identityKey))
       fail("forbidden", "History can only be transferred between your active devices.");
+  };
+  const sourceFor = async (me, destination, mode) => {
+    if (!mode) {
+      await verifyDevices(me, destination);
+      return me.deviceId;
+    }
+    const backup = await backupFor(me.userId);
+    if (!backup) return fail("not_found", "No recovery key configured.");
+    if (mode === "backup" && destination.deviceId === backup.deviceId && destination.identityKey === backup.identityKey) return me.deviceId;
+    if (mode === "restore" && destination.deviceId === me.deviceId && (await devices.forUsers([me.userId], true)).some((d) => d.deviceId === me.deviceId && d.identityKey === destination.identityKey)) return backup.deviceId;
+    return fail("forbidden", "This recovery key belongs to a different account or device.");
   };
   app.post("/chat/history/requests", auth, async (request) => {
     const me = caller(request);
@@ -2063,15 +2135,15 @@ function registerHistoryRoutes(app, { db: db2, devices, guards: guards2, ids: id
   });
   app.get("/chat/history/transfer", auth, async (request) => {
     const me = caller(request);
-    const query = target.extend({ before: id.optional() }).parse(request.query);
-    await verifyDevices(me, query);
+    const query = target.extend({ before: id.optional(), purpose }).parse(request.query);
+    const source = await sourceFor(me, query, query.purpose);
     const rows = await db2.query(
       `SELECT m.id, m.nonce, COALESCE(source.wrap_device_id, m.sender_device_id) AS key_sender, source.sealed_key
        ${ELIGIBLE}
        AND NOT EXISTS (SELECT 1 FROM message_keys destination WHERE destination.message_id = m.id AND destination.device_id = ?)
        ${query.before ? "AND source.message_id < ?" : ""}
        ORDER BY source.message_id DESC LIMIT ${BATCH_SIZE}`,
-      [me.userId, me.deviceId, query.deviceId, ...query.before ? [query.before] : []]
+      [me.userId, source, query.deviceId, ...query.before ? [query.before] : []]
     );
     return {
       keys: rows.map((row) => ({ messageId: row.id, nonce: row.nonce.toString("base64url"), keySenderDeviceId: row.key_sender, sealedKey: row.sealed_key.toString("base64url") })),
@@ -2081,12 +2153,12 @@ function registerHistoryRoutes(app, { db: db2, devices, guards: guards2, ids: id
   app.post("/chat/history/transfer", auth, async (request) => {
     const me = caller(request);
     const input = batch.parse(request.body);
-    await verifyDevices(me, input.target);
+    const source = await sourceFor(me, input.target, input.purpose);
     const submitted = new Map(input.keys.map((key) => [key.messageId, key]));
     const added = await db2.tx(async (tx) => {
       const rows = await tx.query(
         `SELECT m.id, m.nonce ${ELIGIBLE} AND m.id IN (${[...submitted].map(() => "?").join(",")}) ORDER BY m.id FOR UPDATE`,
-        [me.userId, me.deviceId, ...submitted.keys()]
+        [me.userId, source, ...submitted.keys()]
       );
       const valid = rows.filter((row) => row.nonce.toString("base64url") === submitted.get(row.id).nonce);
       if (!valid.length) return 0;
