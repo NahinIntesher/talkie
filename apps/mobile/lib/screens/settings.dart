@@ -17,6 +17,7 @@ import '../core/session.dart';
 import '../ui/format.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
+import 'bubble_settings.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -71,6 +72,7 @@ class SettingsScreen extends StatelessWidget {
           _Row(icon: LucideIcons.monitorSmartphone, label: t('ডিভাইস', 'Devices'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DevicesScreen()))),
           _Row(icon: LucideIcons.history, label: t('চ্যাট ব্যাকআপ ও রিকভারি', 'Chat backup and recovery'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DevicesScreen(historyFirst: true)))),
           _Row(icon: LucideIcons.bell, label: t('নোটিফিকেশন সেটিংস', 'Notification settings'), onTap: () => openAppSettings()),
+          const BubbleSettingsRow(),
         ]),
         _Section(children: [
           _Row(

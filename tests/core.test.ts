@@ -1,6 +1,49 @@
 import { describe, expect, it } from 'vitest';
-import { ipToBuffer, isSnowflake, Snowflake } from '../packages/core/src/index.ts';
+import { AppError, baseEnvSchema, createService, ipToBuffer, isSnowflake, Snowflake } from '../packages/core/src/index.ts';
 import { email, username } from '../packages/contracts/src/index.ts';
+import { installAuth } from '../packages/auth-kit/src/index.ts';
+import { toWire, type MessageRow } from '../services/chat/src/context.ts';
+import type { Executor } from '../packages/db/src/index.ts';
+
+describe('service request limits', () => {
+  it('keeps authenticated internal calls working after the public IP bucket is exhausted', async () => {
+    const env = { ...baseEnvSchema.parse({ LOG_LEVEL: 'fatal' }), WORKER_ID: 1 };
+    const { app } = await createService({ name: 'limit-test', env, rateLimitPerMinute: 1 });
+    const guards = installAuth(app, { verify: async () => { throw new AppError('unauthorized', 'Invalid test token'); } }, env);
+    app.get('/public', async () => ({ ok: true }));
+    app.get('/internal/dependency', { preHandler: guards.requireInternal }, async () => ({ ok: true }));
+    try {
+      const origin = await app.listen({ host: '127.0.0.1', port: 0 });
+      const status = async (path: string, token: string) => {
+        const response = await fetch(`${origin}${path}`, { headers: { 'x-internal-token': token } });
+        await response.arrayBuffer();
+        return response.status;
+      };
+      expect(await status('/internal/dependency', 'invalid')).toBe(403);
+      expect(await status('/public', env.INTERNAL_TOKEN)).toBe(429);
+      expect(await status('/internal/dependency', 'invalid')).toBe(429);
+      expect(await status('/internal/dependency', env.INTERNAL_TOKEN)).toBe(200);
+      expect(await status('/internal/dependency', env.INTERNAL_TOKEN)).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe('chat history event JSON', () => {
+  it('loads the whole page with driver-decoded events, JSON text and malformed legacy metadata', async () => {
+    const event = { type: 'call', actorId: '1', call: { callId: '4', media: 'audio', outcome: 'ended', durationSeconds: 12, joinedIds: ['1', '2'] } } as const;
+    const row: MessageRow = {
+      id: '1', conversation_id: '4', sender_id: '1', sender_device_id: '0', kind: 'call',
+      ciphertext: null, nonce: null, sealed_key: null, wrap_device_id: null, system_event: null,
+      reply_to_id: null, forwarded_count: 0, edited_at: null, deleted_at: null, expires_at: null, created_at: new Date(),
+    };
+    const events = [{ ...event, call: { ...event.call, joinedIds: ['1', '2'] } }, JSON.stringify(event), '{broken', null];
+    const rows = events.map((system_event, index) => ({ ...row, id: String(index + 1), system_event }));
+    const db = { query: async () => [] } as unknown as Executor;
+    expect((await toWire(db, rows, '1')).map((message) => message.systemEvent)).toEqual([event, event, null, null]);
+  });
+});
 
 describe('Snowflake ids', () => {
   it('are unique and increasing within a burst', () => {

@@ -102,7 +102,8 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: Context) {
     const more = rows.length > query.limit;
     const page = rows.slice(0, query.limit);
     if (!newer) page.reverse();
-    return { messages: await toWire(db, page, me.userId), hasMore: more, receipts: await receiptsFor(db, id, me.userId, member.kind) };
+    const [messages, receipts] = await Promise.all([toWire(db, page, me.userId), receiptsFor(db, id, me.userId, member.kind)]);
+    return { messages, hasMore: more, receipts };
   });
 
   app.get('/chat/messages/:id', auth, async (request) => {

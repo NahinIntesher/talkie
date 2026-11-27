@@ -39,18 +39,20 @@ class Api {
   Future<dynamic> delete(String path) => _send('DELETE', path);
 
   Future<dynamic> _send(String method, String path, [Object? body, bool retried = false]) async {
-    final request = http.Request(method, Uri.parse(Config.api(path)))..headers.addAll(_headers);
+    final abort = Completer<void>();
+    final request = http.AbortableRequest(method, Uri.parse(Config.api(path)), abortTrigger: abort.future)..headers.addAll(_headers);
     if (body != null) {
       request.headers['content-type'] = 'application/json';
       request.body = jsonEncode(body);
     }
     http.Response response;
+    final timer = Timer(const Duration(seconds: 25), abort.complete);
     try {
-      response = await http.Response.fromStream(await _client.send(request).timeout(const Duration(seconds: 25)));
-    } on TimeoutException {
-      throw ApiError(0, 'network', 'network');
+      response = await _client.send(request).then(http.Response.fromStream);
     } catch (_) {
       throw ApiError(0, 'network', 'network');
+    } finally {
+      timer.cancel();
     }
     if (response.statusCode == 401 && !retried && !path.startsWith('/auth/otp') && !path.startsWith('/auth/refresh') && refresh != null) {
       if (await refresh!()) return _send(method, path, body, true);
@@ -90,3 +92,14 @@ class Api {
 }
 
 final api = Api.instance;
+
+/// For reads and writes that carry an idempotency key.
+Future<T> retryTemporary<T>(Future<T> Function() request) async {
+  try {
+    return await request();
+  } on ApiError catch (error) {
+    if (error.status != 0 && ![502, 503, 504].contains(error.status)) rethrow;
+    await Future<void>.delayed(const Duration(milliseconds: 450));
+    return request();
+  }
+}

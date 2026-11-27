@@ -29,6 +29,9 @@ export interface Thread {
   items: ChatMessage[];
   hasMore: boolean;
   loaded: boolean;
+  latestSyncedId?: string;
+  loadingPage?: boolean;
+  pageFailed?: boolean;
 }
 
 export interface ChatState {

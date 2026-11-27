@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'api.dart';
+import 'chat_bubbles.dart';
 import 'crypto.dart';
 import 'push.dart';
 
@@ -16,13 +17,19 @@ enum SessionStatus { loading, reconnecting, signedOut, signedIn }
 /// Who is signed in on this phone. The refresh token and this device's private key live in Android's
 /// encrypted storage (Keystore-backed); the access token only in memory.
 class Session extends ChangeNotifier {
-  Session() {
+  Session({this.expectedDevice}) {
     api.refresh = _refresh;
   }
 
   static const _storage = FlutterSecureStorage();
   static const _refreshKey = 'talkie.refresh';
   static const _deviceKey = 'talkie.device';
+  final String? expectedDevice;
+
+  Future<bool> _ownsStoredDevice(String device) async {
+    final stored = await _storage.read(key: _deviceKey);
+    return stored != null && jsonDecode(stored)['deviceId'] == device;
+  }
 
   SessionStatus status = SessionStatus.loading;
   Map<String, dynamic>? user;
@@ -40,6 +47,10 @@ class Session extends ChangeNotifier {
     notifyListeners();
     try {
       if (await _storage.read(key: _refreshKey) == null) {
+        status = SessionStatus.signedOut;
+        return;
+      }
+      if (expectedDevice case final device? when !await _ownsStoredDevice(device)) {
         status = SessionStatus.signedOut;
         return;
       }
@@ -75,7 +86,7 @@ class Session extends ChangeNotifier {
     }
     deviceId = currentDevice;
     user = {...(results[0]['profile'] as Map<String, dynamic>), 'email': results[1]['email'], 'role': results[1]['role']};
-    await _saveDevice();
+    if (expectedDevice == null) await _saveDevice();
   }
 
   Future<bool> _refresh() {
@@ -93,12 +104,14 @@ class Session extends ChangeNotifier {
         }
         final stored = await _storage.read(key: _refreshKey);
         if (stored == null || generation != _generation) return false;
+        if (expectedDevice case final device? when !await _ownsStoredDevice(device)) return false;
         final record = stored.startsWith('{') ? jsonDecode(stored) as Map<String, dynamic> : {'token': stored};
         final attempt = record['attempt'] as String? ?? Crypto.instance.random(16).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
         if (record['attempt'] == null) await _storage.write(key: _refreshKey, value: jsonEncode({...record, 'attempt': attempt}));
         if (generation != _generation) return false;
         final result = await api.post('/auth/refresh', {'refreshToken': record['token'], 'attempt': attempt});
         if (generation != _generation) return false;
+        if (expectedDevice case final device? when !await _ownsStoredDevice(device)) return false;
         await _applyTokens(result['tokens'] as Map<String, dynamic>);
         return true;
       } on ApiError catch (error) {
@@ -168,12 +181,16 @@ class Session extends ChangeNotifier {
 
   Future<void> _clear({bool notify = false}) async {
     _generation++;
+    final oldDevice = deviceId;
     api.accessToken = null;
     user = null;
     keys = null;
     deviceId = null;
-    await _storage.delete(key: _refreshKey);
-    await _storage.delete(key: _deviceKey);
+    if (expectedDevice == null || await _ownsStoredDevice(expectedDevice!)) {
+      await _storage.delete(key: _refreshKey);
+      await _storage.delete(key: _deviceKey);
+    }
+    await setChatBubbles(oldDevice, false).catchError((Object _) {});
     status = SessionStatus.signedOut;
     if (notify) notifyListeners();
   }

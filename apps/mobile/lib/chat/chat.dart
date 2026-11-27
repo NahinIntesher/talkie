@@ -12,6 +12,11 @@ class Thread {
   List<ChatMessage> items = [];
   bool hasMore = false;
   bool loaded = false;
+  bool olderFailed = false;
+  String? latestSyncedId;
+  Future<void>? pageRequest;
+  Future<void>? catchUpRequest;
+  bool catchUpAgain = false;
 }
 
 /// The chat engine (a port of the web's lib/chat/engine.ts): loads conversations, decrypts and sends
@@ -250,7 +255,7 @@ class Chat extends ChangeNotifier {
 
   Future<Json?> reload(String conversationId) async {
     try {
-      final data = await api.get('/chat/conversations/$conversationId') as Json;
+      final data = await retryTemporary(() => api.get('/chat/conversations/$conversationId')) as Json;
       await _storeSummaries([data['conversation'] as Json]);
       members[conversationId] = (data['members'] as List).map((m) => Member(m['userId'] as String, m['role'] as String)).toList();
       pins[conversationId] = List<String>.from(data['pinnedMessageIds'] as List? ?? []);
@@ -274,41 +279,100 @@ class Chat extends ChangeNotifier {
     final summary = reload(conversationId);
     if (!conversations.containsKey(conversationId) && await summary == null) throw ApiError(0, 'unavailable', 'Could not load this chat.');
     final thread = threads[conversationId];
-    if (thread?.loaded != true || thread!.items.any((m) => m.unreadable != null)) await loadOlder(conversationId, initial: true);
+    if (thread?.loaded != true) {
+      await loadOlder(conversationId, initial: true);
+    } else {
+      unawaited(_loadNewer(conversationId));
+    }
     markRead(conversationId);
   }
 
   Future<void> loadOlder(String conversationId, {bool initial = false}) async {
+    if (_disposed) return;
     final thread = threads.putIfAbsent(conversationId, Thread.new);
-    if (!initial && (!thread.hasMore || thread.items.isEmpty)) return;
+    if (thread.pageRequest case final pending?) return pending;
     final oldest = thread.items.where((m) => m.local == null).firstOrNull;
-    final before = !initial && oldest != null ? '&before=${oldest.id}' : '';
-    final page = await api.get('/chat/conversations/$conversationId/messages?limit=50$before') as Json;
-    final decrypted = await _decrypt((page['messages'] as List).cast<Json>());
-    loadProfiles(decrypted.map((m) => m.senderId));
-    thread.items = initial ? [...decrypted, ...thread.items.where((m) => m.local != null)] : [...decrypted, ...thread.items];
-    thread.hasMore = page['hasMore'] == true;
-    thread.loaded = true;
-    receipts[conversationId] = Receipts.fromJson(page['receipts'] as Json?);
+    if (!initial && (!thread.hasMore || oldest == null)) return;
+    final cursor = initial ? '' : '&before=${oldest!.id}';
+    thread.olderFailed = false;
+    final request = _loadPage(conversationId, thread, 'limit=50$cursor', older: true);
+    thread.pageRequest = request.then<void>((_) {});
     _changed();
-    _acknowledgeDelivery(conversationId);
+    try {
+      await thread.pageRequest;
+    } finally {
+      thread.pageRequest = null;
+      _changed();
+    }
+  }
+
+  Future<String?> _loadPage(String conversationId, Thread thread, String query, {required bool older}) async {
+    try {
+      final page = await retryTemporary(() => api.get('/chat/conversations/$conversationId/messages?$query')) as Json;
+      final decrypted = await _decrypt((page['messages'] as List).cast<Json>());
+      if (_disposed || !identical(threads[conversationId], thread)) return null;
+      loadProfiles(decrypted.map((m) => m.senderId));
+      final messages = {for (final m in thread.items.where((m) => m.local == null)) m.id: m};
+      for (final message in decrypted) {
+        final known = messages[message.id];
+        if (known?.body == null || message.unreadable == null || known?.editedAt != message.editedAt) {
+          messages[message.id] = message;
+        }
+      }
+      final ordered = messages.values.toList()..sort((a, b) => BigInt.parse(a.id).compareTo(BigInt.parse(b.id)));
+      thread.items = [...ordered, ...thread.items.where((m) => m.local != null)];
+      final hasMore = page['hasMore'] == true;
+      final before = query.contains('before=');
+      if (older && (!thread.loaded || before || decrypted.firstOrNull?.id == ordered.firstOrNull?.id)) {
+        thread.hasMore = hasMore;
+      }
+      final lastSynced = decrypted.lastOrNull;
+      if (!before && lastSynced != null && (!older || thread.latestSyncedId == null)) thread.latestSyncedId = lastSynced.id;
+      thread.loaded = true;
+      final newest = ordered.lastOrNull;
+      final summary = conversations[conversationId];
+      if (newest != null && summary != null && (summary.last == null || newer(newest.id, summary.last!.id))) summary.last = newest;
+      receipts[conversationId] = Receipts.fromJson(page['receipts'] as Json?);
+      _changed();
+      _acknowledgeDelivery(conversationId);
+      return hasMore ? decrypted.lastOrNull?.id : null;
+    } catch (_) {
+      if (older && thread.loaded) thread.olderFailed = true;
+      rethrow;
+    }
   }
 
   Future<void> _loadNewer(String conversationId) async {
     final thread = threads[conversationId];
-    final last = thread?.items.lastWhere((m) => m.local == null, orElse: () => _none);
-    if (thread == null || !thread.loaded || last == null || identical(last, _none)) return loadOlder(conversationId, initial: true);
-    final page = await api.get('/chat/conversations/$conversationId/messages?after=${last.id}&limit=100') as Json;
-    final decrypted = await _decrypt((page['messages'] as List).cast<Json>());
-    loadProfiles(decrypted.map((m) => m.senderId));
-    final ids = thread.items.map((m) => m.id).toSet();
-    final confirmed = decrypted.map((m) => m.id).toSet();
-    thread.items = [...thread.items.where((m) => !(m.local != null && confirmed.contains(m.id))), ...decrypted.where((m) => !ids.contains(m.id))];
-    final newest = decrypted.lastOrNull;
-    final summary = conversations[conversationId];
-    if (newest != null && summary != null && (summary.last == null || newer(newest.id, summary.last!.id))) summary.last = newest;
-    receipts[conversationId] = Receipts.fromJson(page['receipts'] as Json?);
-    _changed();
+    if (_disposed || thread == null) return;
+    if (thread.catchUpRequest case final pending?) {
+      thread.catchUpAgain = true;
+      return pending;
+    }
+    final request = () async {
+      try {
+        if (thread.pageRequest case final pending?) await pending;
+        do {
+          thread.catchUpAgain = false;
+          var cursor = thread.latestSyncedId;
+          if (!thread.loaded || cursor == null) {
+            await loadOlder(conversationId, initial: true);
+            continue;
+          }
+          while (cursor != null && !_disposed && identical(threads[conversationId], thread)) {
+            cursor = await _loadPage(conversationId, thread, 'after=$cursor&limit=100', older: false);
+          }
+        } while (thread.catchUpAgain && !_disposed && identical(threads[conversationId], thread));
+      } catch (_) {
+        // Keep the visible history. Reconnect or the next message event triggers another catch-up.
+      }
+    }();
+    thread.catchUpRequest = request;
+    try {
+      await request;
+    } finally {
+      thread.catchUpRequest = null;
+    }
   }
 
   static final _none = ChatMessage(id: '0', conversationId: '', senderId: '', senderDeviceId: '', kind: 'text', createdAt: '1970-01-01T00:00:00Z');
@@ -354,7 +418,7 @@ class Chat extends ChangeNotifier {
 
   Future<List<Recipient>> _devicesFor(String conversationId, {bool fresh = false}) async {
     if (!fresh && _deviceCache.containsKey(conversationId)) return _deviceCache[conversationId]!;
-    final result = await api.get('/chat/conversations/$conversationId/devices${fresh ? '?fresh=1' : ''}');
+    final result = await retryTemporary(() => api.get('/chat/conversations/$conversationId/devices${fresh ? '?fresh=1' : ''}'));
     final devices = (result['devices'] as List).map((d) => Recipient.fromJson(d as Json)).toList();
     _deviceCache[conversationId] = devices;
     _remember(devices);
@@ -385,7 +449,7 @@ class Chat extends ChangeNotifier {
   }
 
   Future<List<Recipient>> devicesOf(String conversationId) async {
-    final result = await api.get('/chat/conversations/$conversationId/devices?fresh=1&media=1');
+    final result = await retryTemporary(() => api.get('/chat/conversations/$conversationId/devices?fresh=1&media=1'));
     return (result['devices'] as List).cast<Json>().map(Recipient.fromJson).toList();
   }
 
@@ -425,13 +489,13 @@ class Chat extends ChangeNotifier {
       final result = await sealAndPost(
         conversationId,
         finalBody,
-        (sealed) => api.post('/chat/conversations/$conversationId/messages', {
+        (sealed) => retryTemporary(() => api.post('/chat/conversations/$conversationId/messages', {
           'clientMessageId': clientMessageId,
           'kind': kind,
           ...sealed.toJson(),
           'mediaIds': prepared.mediaIds,
           if (optimistic.replyToId != null) 'replyToId': optimistic.replyToId,
-        }),
+        })),
       );
       final message = ChatMessage.fromWire(result['message'] as Json)..body = finalBody;
       _upsert(conversationId, message, replaceId: localId);
@@ -588,7 +652,7 @@ class Chat extends ChangeNotifier {
   /// "Clear chat": hides all messages up to now, for me only.
   Future<void> clearChat(String conversationId) async {
     await api.post('/chat/conversations/$conversationId/clear');
-    threads[conversationId]?.items.clear();
+    threads.remove(conversationId);
     conversations[conversationId]?.last = null;
     _changed();
     await loadOlder(conversationId, initial: true);

@@ -1,0 +1,16 @@
+name: talkie_bubbles
+description: Android conversation bubble integration for Talkie.
+version: 1.0.0
+publish_to: none
+environment:
+  sdk: ^3.13.7
+  flutter: '>=3.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.kodofact.talkie.bubbles
+        pluginClass: BubblesPlugin

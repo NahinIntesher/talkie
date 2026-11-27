@@ -6,18 +6,22 @@ import 'package:provider/provider.dart';
 import '../chat/chat.dart';
 import '../chat/models.dart';
 import '../core/prefs.dart';
+import '../core/chat_bubbles.dart';
+import '../core/push.dart';
 import '../ui/format.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
 import 'bubble.dart';
+import 'bubble_settings.dart';
 import '../core/api.dart';
 import 'composer.dart';
 import 'info.dart';
 import 'settings.dart';
 
 class ThreadScreen extends StatefulWidget {
-  const ThreadScreen({super.key, required this.conversationId});
+  const ThreadScreen({super.key, required this.conversationId, this.floating = false});
   final String conversationId;
+  final bool floating;
   @override
   State<ThreadScreen> createState() => _ThreadScreenState();
 }
@@ -26,7 +30,6 @@ class _ThreadScreenState extends State<ThreadScreen> {
   final scroll = ScrollController();
   ChatMessage? replyTo;
   ChatMessage? editing;
-  bool loadingOlder = false;
   bool loadFailed = false;
   late final Chat chat = context.read<Chat>();
 
@@ -35,12 +38,15 @@ class _ThreadScreenState extends State<ThreadScreen> {
     super.initState();
     _open();
     scroll.addListener(() {
-      if (scroll.position.pixels > scroll.position.maxScrollExtent - 600 && !loadingOlder) {
-        loadingOlder = true;
-        chat.loadOlder(widget.conversationId).catchError((_) {}).whenComplete(() => loadingOlder = false);
+      final thread = chat.threads[widget.conversationId];
+      if (thread != null && thread.hasMore && !thread.olderFailed && thread.pageRequest == null &&
+          scroll.position.pixels > scroll.position.maxScrollExtent - 200) {
+        _older();
       }
     });
   }
+
+  Future<void> _older() => chat.loadOlder(widget.conversationId).catchError((_) {});
 
   Future<void> _open() async {
     if (loadFailed) setState(() => loadFailed = false);
@@ -89,6 +95,11 @@ class _ThreadScreenState extends State<ThreadScreen> {
     return Scaffold(
       backgroundColor: p.wallpaper,
       appBar: AppBar(
+        leading: widget.floating ? IconButton(
+          tooltip: t('বাবল ছোট করুন', 'Collapse bubble'),
+          icon: const Icon(Icons.keyboard_arrow_down),
+          onPressed: SystemNavigator.pop,
+        ) : null,
         titleSpacing: 0,
         title: c == null
             ? const SizedBox.shrink()
@@ -108,11 +119,16 @@ class _ThreadScreenState extends State<ThreadScreen> {
               ]),
               ),
         actions: [
-          if (c != null && c.active) ...[
+          if (widget.floating) IconButton(
+            tooltip: t('Talkie-তে খুলুন', 'Open in Talkie'),
+            icon: const Icon(Icons.open_in_full),
+            onPressed: () => _guard(() => bubbleChannel.invokeMethod<void>('openApp', {'device': chat.session.deviceId, 'conversation': widget.conversationId})),
+          ),
+          if (!widget.floating && c != null && c.active) ...[
             IconButton(icon: const Icon(LucideIcons.video), onPressed: () => callHook?.call(context, c, true)),
             IconButton(icon: const Icon(LucideIcons.phone), onPressed: () => callHook?.call(context, c, false)),
           ],
-          if (c != null) IconButton(icon: const Icon(LucideIcons.ellipsisVertical), onPressed: () => _chatMenu(c)),
+          if (!widget.floating && c != null) IconButton(icon: const Icon(LucideIcons.ellipsisVertical), onPressed: () => _chatMenu(c)),
         ],
       ),
       body: Column(children: [
@@ -120,20 +136,40 @@ class _ThreadScreenState extends State<ThreadScreen> {
           TextButton.icon(icon: const Icon(Icons.history), label: Text(t('পুরোনো বার্তা ফিরিয়ে আনুন', 'Restore older messages')),
             onPressed: () async {
               await Navigator.push(context, MaterialPageRoute(builder: (_) => const DevicesScreen(historyFirst: true)));
-              if (mounted) await chat.loadOlder(widget.conversationId, initial: true);
+              if (mounted) await chat.loadOlder(widget.conversationId, initial: true).catchError((_) {});
             }),
         Expanded(
-          child: loadFailed
-              ? Center(child: TextButton(onPressed: _open, child: Text(t('চ্যাট লোড হয়নি। আবার চেষ্টা করুন', 'Could not load this chat. Try again'))))
-              : c == null || thread?.loaded != true
+          child: loadFailed && (c == null || (thread?.loaded != true && items.isEmpty))
+              ? Center(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(LucideIcons.messageCircle, size: 28),
+                    const SizedBox(height: 12),
+                    Text(t('চ্যাটের বার্তা লোড করা যায়নি', 'Chat messages couldn’t load')),
+                    TextButton(onPressed: _open, child: Text(t('আবার চেষ্টা করুন', 'Try again'))),
+                  ]),
+                )
+              : c == null || (thread?.loaded != true && items.isEmpty)
               ? const Center(child: CircularProgressIndicator())
+              : items.isEmpty
+              ? Center(child: Text(t('কথা শুরু করতে একটি বার্তা পাঠান', 'Send a message to start the conversation')))
               : ListView.builder(
                   controller: scroll,
                   reverse: true,
                   padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
                   itemCount: items.length + (thread!.hasMore ? 1 : 0),
                   itemBuilder: (context, index) {
-                    if (index == items.length) return const Padding(padding: EdgeInsets.all(16), child: Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))));
+                    if (index == items.length) {
+                      return Center(
+                        child: thread.pageRequest != null
+                            ? const Padding(padding: EdgeInsets.all(16), child: SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2)))
+                            : TextButton(
+                                onPressed: _older,
+                                child: Text(thread.olderFailed
+                                    ? t('পুরোনো বার্তা আবার লোড করুন', 'Retry loading older messages')
+                                    : t('পুরোনো বার্তা দেখুন', 'Load older messages')),
+                              ),
+                      );
+                    }
                     final i = items.length - 1 - index;
                     final m = items[i];
                     final prev = i > 0 ? items[i - 1] : null;
@@ -210,6 +246,22 @@ class _ThreadScreenState extends State<ThreadScreen> {
         child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             _item(sheet, LucideIcons.users, c.isGroup ? t('গ্রুপের তথ্য', 'Group info') : t('কন্টাক্টের তথ্য', 'Contact info'), _openInfo),
+            if (bubblePlatform && c.active)
+              _item(sheet, LucideIcons.messageCircle, t('বাবলে খুলুন', 'Open as bubble'), () => _guard(() async {
+                final device = chat.session.deviceId;
+                final status = await bubbleStatus(device);
+                if (!mounted) return;
+                if (!status.supported || device == null) {
+                  showMessage(context, t('চ্যাট বাবলের জন্য Android 11 বা পরের ভার্সন লাগবে।', 'Chat bubbles need Android 11 or later.'));
+                  return;
+                }
+                if (!await enableBubbles(context, device) || !mounted) return;
+                final shown = await push.openBubble(conversation: c.id, device: device, user: chat.me,
+                  title: chat.titleOf(c, fallback: t('চ্যাট', 'Chat')), locale: context.read<Prefs>().locale);
+                if (mounted && !shown) {
+                  showMessage(context, t('নোটিফিকেশন থেকে বাবল খুলে দেখুন।', 'Try opening the bubble from the notification.'));
+                }
+              })),
             _item(sheet, muted ? LucideIcons.bellRing : LucideIcons.bellOff, muted ? t('আনমিউট', 'Unmute') : t('নোটিফিকেশন মিউট', 'Mute notifications'),
                 () => _guard(() => chat.updateSettings(c.id, {'mutedUntil': muted ? null : DateTime.now().add(const Duration(hours: 8)).toUtc().toIso8601String()}))),
             _item(sheet, c.pinned ? LucideIcons.pinOff : LucideIcons.pin, c.pinned ? t('চ্যাট আনপিন', 'Unpin chat') : t('চ্যাট পিন', 'Pin chat'), () => _guard(() => chat.updateSettings(c.id, {'pinned': !c.pinned}))),

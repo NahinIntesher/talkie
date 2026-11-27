@@ -26,7 +26,7 @@ const ids = new Snowflake(env.WORKER_ID);
 const guards = installAuth(service.app, await createVerifier(env), env);
 const bus = createBus(env, service.log, 'chat');
 const relay = startOutboxRelay(db, bus, service.log);
-const ctx: Context = { db, ids, relay, guards, env, devices: deviceDirectory(env), users: usersClient(env), media: mediaClient(env) };
+const ctx: Context = { db, ids, relay, guards, env, devices: deviceDirectory(env, service.log), users: usersClient(env, service.log), media: mediaClient(env, service.log) };
 
 registerConversationRoutes(service.app, ctx);
 registerMessageRoutes(service.app, ctx);

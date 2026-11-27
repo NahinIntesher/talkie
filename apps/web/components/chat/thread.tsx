@@ -72,7 +72,20 @@ export function Thread({ conversationId, onBack, onInfo }: { conversationId: str
     setShowJump(false);
   }, [conversationId, thread?.loaded]);
 
-  const onScroll = async () => {
+  const fetchOlder = async () => {
+    const el = scroller.current;
+    if (!el || loadingOlder.current) return;
+    loadingOlder.current = true;
+    const before = el.scrollHeight;
+    const position = el.scrollTop;
+    const loaded = await engine.loadOlder(conversationId);
+    requestAnimationFrame(() => {
+      if (loaded && scroller.current === el) el.scrollTop = position + el.scrollHeight - before;
+      loadingOlder.current = false;
+    });
+  };
+
+  const onScroll = () => {
     const el = scroller.current;
     if (!el) return;
     atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
@@ -80,22 +93,14 @@ export function Thread({ conversationId, onBack, onInfo }: { conversationId: str
       setShowJump(false);
       engine.markRead(conversationId);
     }
-    if (el.scrollTop < 200 && thread?.hasMore && !loadingOlder.current) {
-      loadingOlder.current = true;
-      const before = el.scrollHeight;
-      await engine.loadOlder(conversationId).catch(() => {});
-      requestAnimationFrame(() => {
-        el.scrollTop += el.scrollHeight - before;
-        loadingOlder.current = false;
-      });
-    }
+    if (el.scrollTop < 200 && thread?.hasMore && !thread.pageFailed) void fetchOlder();
   };
 
   const jumpTo = useCallback(
     async (messageId: string) => {
       let target = document.getElementById(`m-${messageId}`);
       for (let page = 0; !target && page < 10 && useChat.getState().threads[conversationId]?.hasMore; page++) {
-        await engine.loadOlder(conversationId);
+        if (!await engine.loadOlder(conversationId)) break;
         await new Promise((r) => requestAnimationFrame(r));
         target = document.getElementById(`m-${messageId}`);
       }
@@ -138,7 +143,17 @@ export function Thread({ conversationId, onBack, onInfo }: { conversationId: str
     [conversationId, fail, jumpTo, toast, s.copied],
   );
 
-  if (!conversation) return null;
+  if (!conversation) return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 px-5 text-center" role="status">
+      {thread?.pageFailed ? (
+        <>
+          <p className="text-sm text-muted">{locale === 'bn' ? 'চ্যাট খোলা যায়নি' : 'Couldn’t open the chat'}</p>
+          <Button onClick={() => void engine.openConversation(conversationId)}>{locale === 'bn' ? 'আবার চেষ্টা করুন' : 'Try again'}</Button>
+        </>
+      ) : <span className="size-8 animate-spin rounded-full border-[3px] border-brand/25 border-t-brand" aria-label={locale === 'bn' ? 'লোড হচ্ছে' : 'Opening chat'} />}
+      <Button onClick={onBack}>{locale === 'bn' ? 'চ্যাটের তালিকা' : 'Back to chats'}</Button>
+    </div>
+  );
   const title = conversationTitle(state, conversation);
   const peer = conversation.peerId ? state.profiles[conversation.peerId] : undefined;
   const typers = Object.keys(state.typing[conversationId] ?? {}).filter((id) => id !== me);
@@ -250,8 +265,7 @@ export function Thread({ conversationId, onBack, onInfo }: { conversationId: str
               icon: <Eraser />,
               danger: true,
               onSelect: async () => {
-                await api(`/chat/conversations/${conversationId}/clear`, { method: 'POST' }).catch(fail);
-                await engine.loadOlder(conversationId, true);
+                await engine.clearConversation(conversationId).catch(fail);
               },
             },
             ...(conversation.kind === 'direct' || !conversation.active
@@ -273,10 +287,26 @@ export function Thread({ conversationId, onBack, onInfo }: { conversationId: str
       )}
 
       {/* Messages */}
-      <div ref={scroller} onScroll={onScroll} className="chat-wallpaper scrollbar-thin relative flex-1 overflow-y-auto overscroll-contain py-3" role="log" aria-live="polite" aria-relevant="additions">
-        {!thread?.loaded && (
-          <div className="flex h-full items-center justify-center">
-            <span className="size-8 animate-spin rounded-full border-[3px] border-brand/25 border-t-brand" aria-label="Loading" />
+      <div ref={scroller} onScroll={onScroll} className="chat-wallpaper scrollbar-thin [overflow-anchor:none] relative flex-1 overflow-y-auto overscroll-contain py-3" role="log" aria-live="polite" aria-relevant="additions">
+        {!thread?.loaded && items.length === 0 && (
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-5 text-center" role="status">
+            {thread?.pageFailed ? (
+              <>
+                <p className="text-sm text-muted">{locale === 'bn' ? 'চ্যাটের বার্তা লোড করা যায়নি' : 'Chat messages couldn’t load'}</p>
+                <Button onClick={() => void engine.openConversation(conversationId)}>{locale === 'bn' ? 'আবার চেষ্টা করুন' : 'Try again'}</Button>
+              </>
+            ) : <span className="size-8 animate-spin rounded-full border-[3px] border-brand/25 border-t-brand" aria-label={locale === 'bn' ? 'লোড হচ্ছে' : 'Loading messages'} />}
+          </div>
+        )}
+        {thread?.loaded && thread.hasMore && (
+          <div className="flex min-h-10 items-center justify-center">
+            {thread.loadingPage
+              ? <span className="size-5 animate-spin rounded-full border-2 border-brand/25 border-t-brand" role="status" aria-label={locale === 'bn' ? 'লোড হচ্ছে' : 'Loading older messages'} />
+              : <button type="button" className="rounded-lg px-3 py-2 text-sm font-semibold text-brand hover:bg-surface" onClick={() => void fetchOlder()}>
+                  {thread.pageFailed
+                    ? (locale === 'bn' ? 'পুরোনো বার্তা আবার লোড করুন' : 'Retry loading older messages')
+                    : (locale === 'bn' ? 'পুরোনো বার্তা দেখুন' : 'Load older messages')}
+                </button>}
           </div>
         )}
         {items.some(m => m.unreadable) && <Link href="/app/settings?section=devices" className="mx-auto my-2 block w-fit rounded-xl bg-surface px-4 py-2 text-sm font-bold text-brand">{locale === 'bn' ? 'পুরোনো বার্তা ফিরিয়ে আনুন' : 'Restore older messages'}</Link>}

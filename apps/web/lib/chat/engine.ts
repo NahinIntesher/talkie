@@ -2,10 +2,10 @@
 
 import type { ConversationSummary, DeviceKey, MemberInfo, Receipts, WireMessage } from '@talkie/contracts';
 import * as e2ee from '@talkie/e2ee';
-import { api, ApiError, refreshSession } from '../api';
+import { api, ApiError, refreshSession, retryTemporary } from '../api';
 import { connectRealtime, disconnectRealtime, onConnectionState, realtime, renewRealtimeToken } from '../realtime';
 import { deviceKeys, ensureDeviceKeys, isKeyOwner, rememberKeys, senderKeys } from './keys';
-import { resetChat, useChat, type ChatMessage, type Profile } from './store';
+import { resetChat, useChat, type ChatMessage, type Profile, type Thread } from './store';
 import { kindOf, prepareImage, prepareVideo, primeAttachment, uploadEncrypted } from './media';
 import type { AttachmentRef, MessageKind, PollBody } from '@talkie/contracts';
 
@@ -17,12 +17,16 @@ import type { AttachmentRef, MessageKind, PollBody } from '@talkie/contracts';
 const set = useChat.setState;
 const get = useChat.getState;
 const deviceCache = new Map<string, DeviceKey[]>();
+const olderPages = new Map<string, Promise<boolean>>();
+const catchUps = new Map<string, { task: Promise<void>; rerun: boolean }>();
 const readSent = new Map<string, string>();
 const deliveredSent = new Map<string, string>();
 let started = false;
 let cleanup: Array<() => void> = [];
 
 const newer = (a: string, b: string) => BigInt(a) > BigInt(b);
+const messageOrder = (a: ChatMessage, b: ChatMessage) =>
+  a.local ? (b.local ? 0 : 1) : b.local ? -1 : a.id === b.id ? 0 : newer(a.id, b.id) ? 1 : -1;
 
 // ───────── Decryption ─────────
 
@@ -108,7 +112,9 @@ export async function loadConversations() {
 
 async function reloadConversation(conversationId: string) {
   try {
-    const data = await api<{ conversation: ConversationSummary; members: MemberInfo[]; pinnedMessageIds: string[] }>(`/chat/conversations/${conversationId}`);
+    const data = await retryTemporary(() => api<{ conversation: ConversationSummary; members: MemberInfo[]; pinnedMessageIds: string[] }>(
+      `/chat/conversations/${conversationId}`, { signal: AbortSignal.timeout(10_000) },
+    ));
     await storeSummaries([data.conversation]);
     set((state) => ({ members: { ...state.members, [conversationId]: data.members }, pins: { ...state.pins, [conversationId]: data.pinnedMessageIds } }));
     void loadProfiles(data.members.map((m) => m.userId));
@@ -122,6 +128,8 @@ async function reloadConversation(conversationId: string) {
 
 /** Removes a chat from this device's list (it was deleted, or is gone). */
 function forgetConversation(conversationId: string) {
+  olderPages.delete(conversationId);
+  catchUps.delete(conversationId);
   set((state) => {
     const conversations = { ...state.conversations };
     const threads = { ...state.threads };
@@ -137,54 +145,120 @@ export async function deleteConversation(conversationId: string) {
   forgetConversation(conversationId);
 }
 
+export async function clearConversation(conversationId: string) {
+  await api(`/chat/conversations/${conversationId}/clear`, { method: 'POST' });
+  olderPages.delete(conversationId);
+  catchUps.delete(conversationId);
+  set((state) => {
+    const threads = { ...state.threads };
+    delete threads[conversationId];
+    return { threads };
+  });
+  await loadOlder(conversationId, true);
+}
+
 export async function openConversation(conversationId: string | null) {
   set({ activeId: conversationId });
   if (!conversationId) return;
-  const thread = get().threads[conversationId];
-  void reloadConversation(conversationId);
-  if (!thread?.loaded || thread.items.some((m) => m.unreadable)) await loadOlder(conversationId, true);
+  const summary = reloadConversation(conversationId);
+  if (get().threads[conversationId]?.loaded) void loadNewer(conversationId);
+  else await loadOlder(conversationId, true);
+  if (!await summary && get().activeId === conversationId && !get().conversations[conversationId]) {
+    updateThread(conversationId, { pageFailed: true });
+  }
   markRead(conversationId);
 }
 
-export async function loadOlder(conversationId: string, initial = false) {
-  const thread = get().threads[conversationId];
-  if (!initial && (!thread?.hasMore || !thread.items.length)) return;
-  const before = !initial && thread?.items[0] ? `&before=${thread.items.find((m) => !m.local)?.id ?? ''}` : '';
-  const page = await api<{ messages: WireMessage[]; hasMore: boolean; receipts: Receipts }>(`/chat/conversations/${conversationId}/messages?limit=50${before}`);
-  const decrypted = await decrypt(page.messages);
-  void loadProfiles(decrypted.map((m) => m.senderId));
-  set((state) => {
-    const current = state.threads[conversationId];
-    const items = initial ? [...decrypted, ...(current?.items.filter((m) => m.local) ?? [])] : [...decrypted, ...(current?.items ?? [])];
-    return {
-      threads: { ...state.threads, [conversationId]: { items, hasMore: page.hasMore, loaded: true } },
-      receipts: { ...state.receipts, [conversationId]: page.receipts },
-    };
-  });
-  acknowledgeDelivery(conversationId);
+export function loadOlder(conversationId: string, initial = false): Promise<boolean> {
+  const pending = olderPages.get(conversationId);
+  if (pending) return pending;
+  const thread = get().threads[conversationId] ?? { items: [], hasMore: false, loaded: false };
+  const oldest = thread.items.find((m) => !m.local)?.id;
+  if (!initial && (!thread.hasMore || !oldest)) return Promise.resolve(false);
+  const before = initial ? '' : `&before=${oldest}`;
+  const request: Promise<boolean> = loadPage(conversationId, `limit=50${before}`, () => olderPages.get(conversationId) === request, before ? 'older' : 'initial')
+    .then(() => true, () => {
+      if (olderPages.get(conversationId) === request) updateThread(conversationId, { pageFailed: true });
+      return false;
+    }).finally(() => {
+      if (olderPages.get(conversationId) !== request) return;
+      olderPages.delete(conversationId);
+      updateThread(conversationId, { loadingPage: false });
+    });
+  olderPages.set(conversationId, request);
+  updateThread(conversationId, { loadingPage: true, pageFailed: false });
+  return request;
 }
 
-async function loadNewer(conversationId: string) {
-  const thread = get().threads[conversationId];
-  const last = [...(thread?.items ?? [])].reverse().find((m) => !m.local);
-  if (!thread?.loaded || !last) return loadOlder(conversationId, true);
-  const page = await api<{ messages: WireMessage[]; receipts: Receipts }>(`/chat/conversations/${conversationId}/messages?after=${last.id}&limit=100`);
+function updateThread(conversationId: string, patch: Partial<Thread>) {
+  set((state) => ({
+    threads: { ...state.threads, [conversationId]: { ...(state.threads[conversationId] ?? { items: [], hasMore: false, loaded: false }), ...patch } },
+  }));
+}
+
+async function loadPage(conversationId: string, query: string, currentRequest: () => boolean, kind: 'initial' | 'older' | 'newer'): Promise<string | undefined> {
+  const page = await retryTemporary(() => api<{ messages: WireMessage[]; receipts: Receipts; hasMore: boolean }>(
+    `/chat/conversations/${conversationId}/messages?${query}`, { signal: AbortSignal.timeout(12_000) },
+  ));
+  if (!currentRequest()) return;
   const decrypted = await decrypt(page.messages);
+  if (!currentRequest()) return;
   void loadProfiles(decrypted.map((m) => m.senderId));
   set((state) => {
     const current = state.threads[conversationId]!;
-    const ids = new Set(current.items.map((m) => m.id));
-    const confirmed = new Set(decrypted.map((m) => m.id));
-    // Drop my optimistic copies that the server has now confirmed.
-    const items = [...current.items.filter((m) => !(m.local && confirmed.has(m.id))), ...decrypted.filter((m) => !ids.has(m.id))];
+    const byId = new Map(current.items.map((m) => [m.id, m]));
+    for (const message of decrypted) {
+      const known = byId.get(message.id);
+      if (!known?.body || !message.unreadable || known.editedAt !== message.editedAt) byId.set(message.id, message);
+    }
+    const items = [...byId.values()].sort(messageOrder);
     const newest = decrypted.at(-1);
+    const oldest = items.find((m) => !m.local)?.id;
     const summary = state.conversations[conversationId];
-    const conversations =
-      newest && summary && (!summary.lastMessage || newer(newest.id, summary.lastMessage.id))
-        ? { ...state.conversations, [conversationId]: { ...summary, lastMessage: newest, lastBody: newest.body } }
-        : state.conversations;
-    return { conversations, threads: { ...state.threads, [conversationId]: { ...current, items } }, receipts: { ...state.receipts, [conversationId]: page.receipts } };
+    const conversations = newest && summary && (!summary.lastMessage || newer(newest.id, summary.lastMessage.id))
+      ? { ...state.conversations, [conversationId]: { ...summary, lastMessage: newest, lastBody: newest.body } }
+      : state.conversations;
+    const hasMore = kind === 'older' || (kind === 'initial' && (!current.loaded || decrypted[0]?.id === oldest)) ? page.hasMore : current.hasMore;
+    const latestSyncedId = (kind === 'newer' || !current.latestSyncedId) && kind !== 'older' && newest ? newest.id : current.latestSyncedId;
+    return { conversations, threads: { ...state.threads, [conversationId]: { ...current, items, hasMore, latestSyncedId, loaded: true } }, receipts: { ...state.receipts, [conversationId]: page.receipts } };
   });
+  acknowledgeDelivery(conversationId);
+  return page.hasMore ? decrypted.at(-1)?.id : undefined;
+}
+
+async function loadNewer(conversationId: string) {
+  const pending = catchUps.get(conversationId);
+  if (pending) {
+    pending.rerun = true;
+    return pending.task;
+  }
+  const currentRequest = (): boolean => catchUps.get(conversationId) === job;
+  const job: { task: Promise<void>; rerun: boolean } = {
+    rerun: false,
+    task: Promise.resolve().then(async () => {
+      try {
+        do {
+          job.rerun = false;
+          await olderPages.get(conversationId);
+          if (!currentRequest()) return;
+          let cursor = get().threads[conversationId]?.latestSyncedId;
+          if (!cursor) {
+            await loadOlder(conversationId, true);
+            continue;
+          }
+          while (cursor && currentRequest()) {
+            cursor = await loadPage(conversationId, `after=${cursor}&limit=100`, currentRequest, 'newer');
+          }
+        } while (job.rerun && currentRequest());
+      } catch {
+        // Retain the visible history and retry on reconnect or the next event.
+      } finally {
+        if (currentRequest()) catchUps.delete(conversationId);
+      }
+    }),
+  };
+  catchUps.set(conversationId, job);
+  return job.task;
 }
 
 // ───────── Receipts ─────────
@@ -223,7 +297,9 @@ function acknowledgeDelivery(conversationId: string) {
 
 async function devicesFor(conversationId: string, fresh = false): Promise<DeviceKey[]> {
   if (!fresh && deviceCache.has(conversationId)) return deviceCache.get(conversationId)!;
-  const { devices } = await api<{ devices: DeviceKey[] }>(`/chat/conversations/${conversationId}/devices`);
+  const { devices } = await retryTemporary(() => api<{ devices: DeviceKey[] }>(
+    `/chat/conversations/${conversationId}/devices${fresh ? '?fresh=1' : ''}`, { signal: AbortSignal.timeout(12_000) },
+  ));
   deviceCache.set(conversationId, devices);
   rememberKeys(devices);
   return devices;
@@ -254,7 +330,7 @@ function upsertMessage(conversationId: string, message: ChatMessage, replaceId?:
     const thread = state.threads[conversationId] ?? { items: [], hasMore: false, loaded: false };
     const items = thread.items.filter((m) => m.id !== message.id && m.id !== replaceId);
     items.push(message);
-    items.sort((a, b) => (a.local && !b.local ? 1 : !a.local && b.local ? -1 : newer(a.id, b.id) ? 1 : -1));
+    items.sort(messageOrder);
     const summary = state.conversations[conversationId];
     const isLatest = !message.local && (!summary?.lastMessage || !newer(summary.lastMessage.id, message.id));
     return {
@@ -304,10 +380,11 @@ async function sendMessage(conversationId: string, kind: Exclude<MessageKind, 's
     const prepared = options.prepare ? await options.prepare(localId) : {};
     const finalBody = { ...body, ...prepared.body } as e2ee.MessageBody;
     const { message } = await sealAndPost(conversationId, finalBody, (sealed) =>
-      api<{ message: WireMessage }>(`/chat/conversations/${conversationId}/messages`, {
+      retryTemporary(() => api<{ message: WireMessage }>(`/chat/conversations/${conversationId}/messages`, {
         method: 'POST',
+        signal: AbortSignal.timeout(15_000),
         body: { clientMessageId, kind, ...sealed, mediaIds: prepared.mediaIds ?? [], ...(optimistic.replyToId ? { replyToId: optimistic.replyToId } : {}) },
-      }),
+      })),
     );
     upsertMessage(conversationId, { ...message, body: finalBody }, localId);
     readSent.set(conversationId, message.id);
@@ -696,6 +773,8 @@ export function stopChat() {
   cleanup.forEach((fn) => fn());
   cleanup = [];
   deviceCache.clear();
+  olderPages.clear();
+  catchUps.clear();
   readSent.clear();
   deliveredSent.clear();
   disconnectRealtime();

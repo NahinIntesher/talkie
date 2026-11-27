@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -7,6 +9,7 @@ import '../call/call_overlay.dart';
 import '../call/calls_screen.dart';
 import '../chat/chat.dart';
 import '../core/prefs.dart';
+import '../core/chat_bubbles.dart';
 import '../meet/meet_screen.dart';
 import '../status/status.dart';
 import '../status/status_screen.dart';
@@ -40,15 +43,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     context.read<Statuses>();
     // Push notifications: register this device, and open the chat whose notification was tapped.
     push.openConversation.addListener(_openFromPush);
+    if (bubblePlatform) {
+      bubbleChannel.setMethodCallHandler((event) async {
+        if (event.method == 'openChat') await _openFromBubble();
+      });
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _openFromPush();
+      unawaited(_openFromBubble());
       push.register(openChat: () => chat.activeId);
     });
     callHook = (context, conversation, video) async {
       final error = await context.read<Calls>().start(conversation.id, video);
       if (error != null && context.mounted) showMessage(context, error, error: true);
     };
+  }
+
+  Future<void> _openFromBubble() async {
+    if (!bubblePlatform || !mounted) return;
+    final target = await bubbleChannel.invokeMapMethod<String, String>('takeOpen').catchError((Object _) => null);
+    if (!mounted || target == null || target['device'] != context.read<Chat>().session.deviceId) return;
+    final id = target['conversation'];
+    if (!validBubbleId(id)) return;
+    setState(() => tab = 0);
+    if (context.read<Chat>().activeId != id) openThread(context, id!);
   }
 
   void _openFromPush() {
@@ -61,6 +80,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    if (bubblePlatform) bubbleChannel.setMethodCallHandler(null);
     replies.close();
     push.openConversation.removeListener(_openFromPush);
     WidgetsBinding.instance.removeObserver(this);

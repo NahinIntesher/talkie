@@ -77,7 +77,10 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
     if (await refreshSession()) return api<T>(path, options, true);
     onSignedOut?.();
   }
-  const text = await response.text();
+  const text = await response.text().catch((error: Error) => {
+    if (error.name === 'AbortError') throw error;
+    throw new ApiError(0, 'network', 'network');
+  });
   let data: unknown;
   try {
     data = text ? (JSON.parse(text) as unknown) : {};
@@ -89,4 +92,15 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
     throw new ApiError(response.status, error.code, error.message, error.details);
   }
   return data as T;
+}
+
+/** For reads and writes that carry an idempotency key. */
+export async function retryTemporary<T>(request: () => Promise<T>): Promise<T> {
+  try {
+    return await request();
+  } catch (error) {
+    if (!(error instanceof ApiError) || ![0, 502, 503, 504].includes(error.status)) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    return request();
+  }
 }

@@ -58,6 +58,11 @@ export async function phase4({ call, check }: { call: Call; check: Check }, peop
   const { body: history } = await call('chat', `/chat/conversations/${conversationId}/messages`, { token: rafi.token });
   const callLine = history.messages.findLast((m: { kind: string }) => m.kind === 'call');
   check('the chat line says how long it lasted', callLine?.systemEvent?.call?.outcome === 'ended' && callLine.systemEvent.call.durationSeconds >= 1, callLine?.systemEvent);
+  const messagesPath = `/chat/conversations/${conversationId}/messages`;
+  const { body: latest } = await call('chat', `${messagesPath}?limit=1`, { token: rafi.token });
+  const { body: older } = await call('chat', `${messagesPath}?limit=1&before=${latest.messages[0].id}`, { token: rafi.token });
+  const { body: newer } = await call('chat', `${messagesPath}?limit=1&after=${older.messages[0].id}`, { token: rafi.token });
+  check('history pages use exclusive cursors in both directions', latest.hasMore && older.messages[0].id !== latest.messages[0].id && newer.messages[0].id === latest.messages[0].id && !newer.hasMore);
 
   // Declined and cancelled
   const second = await call('meet', '/meet/calls', { token: ayesha.token, body: { conversationId, media: 'audio', keys: e2ee.sealSecret(e2ee.newCallKey(), ayesha.keys, devices.devices) } });

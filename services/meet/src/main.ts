@@ -37,7 +37,7 @@ if (!lk.configured) service.log.warn('LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_AP
 // LiveKit signs the raw webhook body; keep it as text for verification.
 service.app.addContentTypeParser('application/webhook+json', { parseAs: 'string' }, (_request, body, done) => done(null, body));
 
-const ctx: Context = { db, ids, relay, guards, lk, env, services: services(env) };
+const ctx: Context = { db, ids, relay, guards, lk, env, services: services(env, service.log) };
 const calls = registerCallRoutes(service.app, ctx);
 bus.subscribe('meet-call-revocations', ['device.revoked'], async (event) => {
   const { deviceId } = event.payload as { deviceId: string };

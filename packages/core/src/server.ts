@@ -8,6 +8,7 @@ import { ZodError } from 'zod';
 import { AppError } from './errors.ts';
 import { createLogger, type Logger } from './logger.ts';
 import type { BaseEnv } from './config.ts';
+import { safeEqual } from './crypto.ts';
 
 export interface ServiceOptions {
   name: string;
@@ -47,6 +48,7 @@ export async function createService(options: ServiceOptions): Promise<Service> {
     ajv: { customOptions: { removeAdditional: 'all', coerceTypes: false } },
   };
   const app = Fastify(fastifyOptions);
+  const internalToken = Buffer.from(env.INTERNAL_TOKEN);
   const redis = env.REDIS_URL ? new Redis(env.REDIS_URL, { lazyConnect: false, maxRetriesPerRequest: 2, enableAutoPipelining: true }) : null;
   redis?.on('error', (error) => log.warn({ err: error }, 'redis error'));
 
@@ -68,6 +70,11 @@ export async function createService(options: ServiceOptions): Promise<Service> {
     timeWindow: '1 minute',
     ...(redis ? { redis, nameSpace: `rl:${name}:` } : {}),
     keyGenerator: (request) => (request as { auth?: { userId: string } }).auth?.userId ?? request.ip,
+    allowList: (request) => {
+      const token = request.headers['x-internal-token'];
+      return request.routeOptions.url?.startsWith('/internal/') === true &&
+        typeof token === 'string' && safeEqual(Buffer.from(token), internalToken);
+    },
     errorResponseBuilder: (_request, context) =>
       new AppError('rate_limited', 'Too many requests. Please slow down.', { retryAfterSeconds: Math.ceil(context.ttl / 1000) }),
   });

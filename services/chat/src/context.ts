@@ -1,4 +1,4 @@
-import { AppError, fail, type Snowflake } from '@talkie/core';
+import { fail, lookupInternal, type Logger, type Snowflake } from '@talkie/core';
 import { writeOutbox, type Database, type Executor } from '@talkie/db';
 import type { OutboxRelay } from '@talkie/bus';
 import type { installAuth } from '@talkie/auth-kit';
@@ -25,22 +25,6 @@ export interface Context {
 
 // ───────── Other services ─────────
 
-async function internal<T>(env: ChatEnv, url: string, body: unknown): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: { 'x-internal-token': env.INTERNAL_TOKEN, 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(5_000),
-    });
-  } catch {
-    throw new AppError('unavailable', 'Talkie is busy right now. Please try again in a moment.');
-  }
-  if (!response.ok) throw new AppError('unavailable', 'Talkie is busy right now. Please try again in a moment.');
-  return (await response.json()) as T;
-}
-
 export interface Relationship {
   userId: string;
   blocked: boolean;
@@ -58,18 +42,18 @@ export interface MediaClient {
   release(mediaIds: string[]): Promise<void>;
 }
 
-export const mediaClient = (env: ChatEnv): MediaClient => ({
+export const mediaClient = (env: ChatEnv, log: Logger): MediaClient => ({
   verify: async (ownerId, mediaIds, purposes) =>
-    mediaIds.length ? (await internal<{ valid: string[] }>(env, `${env.MEDIA_URL}/internal/media/verify`, { ownerId, mediaIds, purposes })).valid : [],
+    mediaIds.length ? (await lookupInternal<{ valid: string[] }>(env.INTERNAL_TOKEN, log, 'media.verify', `${env.MEDIA_URL}/internal/media/verify`, { ownerId, mediaIds, purposes })).valid : [],
   release: async (mediaIds) => {
     if (!mediaIds.length) return;
-    await internal(env, `${env.MEDIA_URL}/internal/media/release`, { mediaIds }).catch(() => {});
+    await lookupInternal(env.INTERNAL_TOKEN, log, 'media.release', `${env.MEDIA_URL}/internal/media/release`, { mediaIds }, false).catch(() => {});
   },
 });
 
-export const usersClient = (env: ChatEnv): UsersClient => ({
+export const usersClient = (env: ChatEnv, log: Logger): UsersClient => ({
   relationships: async (userId, otherIds) =>
-    (await internal<{ relationships: Relationship[] }>(env, `${env.USERS_URL}/internal/relationships`, { userId, otherIds })).relationships,
+    (await lookupInternal<{ relationships: Relationship[] }>(env.INTERNAL_TOKEN, log, 'users.relationships', `${env.USERS_URL}/internal/relationships`, { userId, otherIds })).relationships,
 });
 
 /**
@@ -91,7 +75,7 @@ export async function messageRecipients(ctx: Context, conversationId: string, fr
   return [...devices, ...backups];
 }
 
-export function deviceDirectory(env: ChatEnv): DeviceDirectory {
+export function deviceDirectory(env: ChatEnv, log: Logger): DeviceDirectory {
   const cache = new Map<string, { at: number; devices: DeviceKey[] }>();
   const TTL = 30_000;
   return {
@@ -101,7 +85,7 @@ export function deviceDirectory(env: ChatEnv): DeviceDirectory {
       const missing = unique.filter((id) => fresh || (cache.get(id)?.at ?? 0) + TTL < now);
       for (let offset = 0; offset < missing.length; offset += 1000) {
         const batch = missing.slice(offset, offset + 1000);
-        const { devices } = await internal<{ devices: DeviceKey[] }>(env, `${env.AUTH_URL}/internal/device-keys`, { userIds: batch });
+        const { devices } = await lookupInternal<{ devices: DeviceKey[] }>(env.INTERNAL_TOKEN, log, 'auth.device-keys', `${env.AUTH_URL}/internal/device-keys`, { userIds: batch });
         for (const id of batch) cache.set(id, { at: now, devices: [] });
         for (const device of devices) cache.get(device.userId)?.devices.push(device);
       }
@@ -188,7 +172,7 @@ export interface MessageRow {
   nonce: Buffer | null;
   sealed_key: Buffer | null;
   wrap_device_id: string | null;
-  system_event: string | null;
+  system_event: string | SystemEvent | null;
   reply_to_id: string | null;
   forwarded_count: number;
   edited_at: Date | null;
@@ -199,6 +183,16 @@ export interface MessageRow {
 
 export const MESSAGE_COLUMNS = `m.id, m.conversation_id, m.sender_id, m.sender_device_id, m.kind, m.ciphertext, m.nonce, k.sealed_key, k.wrap_device_id,
   m.system_event, m.reply_to_id, m.forwarded_count, m.edited_at, m.deleted_at, m.expires_at, m.created_at`;
+
+function systemEvent(value: MessageRow['system_event']): SystemEvent | null {
+  try {
+    // MariaDB returns JSON text and MySQL can return an already decoded object.
+    const event = typeof value === 'string' ? JSON.parse(value) as SystemEvent | null : value;
+    return typeof event?.type === 'string' ? event : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Adds reactions and the viewer's stars to message rows. */
 export async function toWire(db: Executor, rows: MessageRow[], viewerId: string): Promise<WireMessage[]> {
@@ -235,7 +229,7 @@ export async function toWire(db: Executor, rows: MessageRow[], viewerId: string)
       nonce: row.nonce ? row.nonce.toString('base64url') : null,
       sealedKey: row.sealed_key ? row.sealed_key.toString('base64url') : null,
       ...(row.wrap_device_id ? { keySenderDeviceId: row.wrap_device_id } : {}),
-      systemEvent: row.system_event ? (JSON.parse(row.system_event) as SystemEvent) : null,
+      systemEvent: systemEvent(row.system_event),
       replyToId: row.reply_to_id,
       forwardedCount: row.forwarded_count,
       editedAt: row.edited_at?.toISOString() ?? null,

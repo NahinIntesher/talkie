@@ -206,6 +206,7 @@ class Calls extends ChangeNotifier {
 
   String _friendly(Object error) {
     debugPrint('Talkie call failed: $error');
+    if (error is ApiError && error.status == 0) return 'Connection unavailable. Try calling again.';
     return error is ApiError ? error.message : 'The call could not connect.';
   }
 
@@ -279,10 +280,22 @@ class Calls extends ChangeNotifier {
       _changed();
       if (joined != null) unawaited(_abandon(joined));
       if (error is ApiError && error.details?['currentCallId'] is String) {
-        final existing = await api.get('/meet/calls/${error.details!['currentCallId']}');
-        recoverable = existing['call'] as Json;
-        _changed();
-        return null;
+        final existing = await api.get('/meet/calls/${error.details!['currentCallId']}').catchError((_) => null);
+        if (existing != null) {
+          recoverable = existing['call'] as Json;
+          _changed();
+          return null;
+        }
+      }
+      // A lost response can hide a call that the server already created.
+      if (joined == null && error is ApiError && (error.status == 0 || error.status >= 500)) {
+        final current = await api.get('/meet/calls/current').catchError((_) => null);
+        final saved = current?['call'] as Json?;
+        if (!_disposed && saved?['conversationId'] == conversationId) {
+          recoverable = saved;
+          _changed();
+          return null;
+        }
       }
       return _friendly(error);
     } finally {

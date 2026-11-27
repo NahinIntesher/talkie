@@ -8,6 +8,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'api.dart';
+import 'chat_bubbles.dart';
 import 'notification_reply.dart';
 
 @pragma('vm:entry-point')
@@ -29,6 +30,7 @@ class Push {
   static final Push instance = Push._();
 
   bool _ready = false;
+  bool _localReady = false;
   bool _registering = false;
   int _session = 0;
   StreamSubscription<String>? _refresh;
@@ -47,9 +49,13 @@ class Push {
   /// Called once at start-up, before the first screen.
   Future<void> init({required bool bangla}) async {
     try {
+      await _configureLocalNotifications(bangla);
       await Firebase.initializeApp();
       FirebaseMessaging.onBackgroundMessage(backgroundMessage);
-      await _configureNotifications(bangla);
+      FirebaseMessaging.onMessageOpenedApp.listen(_opened);
+      final initial = await FirebaseMessaging.instance.getInitialMessage();
+      if (initial != null) _opened(initial);
+      _ready = true;
     } catch (error) {
       debugPrint('Talkie push: could not initialize ($error)');
     }
@@ -81,7 +87,7 @@ class Push {
     } else { openConversation.value = payload; }
   }
 
-  Future<void> _configureNotifications(bool bangla) async {
+  Future<void> _configureLocalNotifications(bool bangla) async {
     await _local(bangla);
     final localLaunch = await _notifications.getNotificationAppLaunchDetails();
     if (localLaunch?.didNotificationLaunchApp == true) _openPayload(localLaunch?.notificationResponse?.payload);
@@ -93,10 +99,7 @@ class Push {
       importance: Importance.max,
       audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
     ));
-    FirebaseMessaging.onMessageOpenedApp.listen(_opened);
-    final initial = await FirebaseMessaging.instance.getInitialMessage();
-    if (initial != null) _opened(initial);
-    _ready = true;
+    _localReady = true;
   }
 
   void _opened(RemoteMessage message) {
@@ -138,28 +141,67 @@ class Push {
 
   Future<void> _showMessage(RemoteMessage message, String? activeChat) async {
     final id = message.data['conversationId'];
-    if (message.data['type'] != 'message' || id is! String || id == activeChat) return;
+    if (message.data['type'] != 'message' || id is! String || !validBubbleId(id) || id == activeChat) return;
     final device = message.data['deviceId'];
     if (device != null) {
       final saved = await _storage.read(key: 'talkie.device');
       if (saved == null || jsonDecode(saved)['deviceId'] != device) return;
     }
-    final reply = message.data['locale'] == 'en' ? 'Reply' : 'উত্তর দিন';
     try {
-      await _notifications.show(
-        id: id.hashCode & 0x7fffffff,
+      await _postChat(
+        conversation: id,
+        device: device as String?,
+        user: message.data['userId'] as String?,
         title: message.notification?.title ?? message.data['title'] as String? ?? 'Talkie',
         body: message.notification?.body ?? message.data['body'] as String?,
-        payload: jsonEncode({'conversationId': id, 'userId': message.data['userId'], 'deviceId': device, 'locale': message.data['locale']}),
-        notificationDetails: NotificationDetails(android: AndroidNotificationDetails(
-          _messages.id, _messages.name, importance: Importance.high, priority: Priority.high, tag: id,
-          category: AndroidNotificationCategory.message,
-          actions: [if (device != null) AndroidNotificationAction('reply', reply, inputs: [AndroidNotificationActionInput(label: reply)])],
-        )),
+        locale: message.data['locale'] as String?,
       );
     } catch (error) {
       debugPrint('Talkie push: could not show a message notification ($error)');
     }
+  }
+
+  Future<bool> openBubble({required String conversation, required String device, required String user, required String title, required String locale}) async {
+    if (!_localReady || !validBubbleId(conversation)) return false;
+    return _postChat(conversation: conversation, device: device, user: user, title: title,
+      body: locale == 'en' ? 'Open chat' : 'চ্যাট খুলুন', locale: locale, expand: true);
+  }
+
+  Future<bool> _postChat({required String conversation, required String? device, required String? user,
+    required String title, required String? body, required String? locale, bool expand = false}) async {
+    if (title.trim().isEmpty) title = 'Talkie';
+    final state = await bubbleStatus(device);
+    final bubble = state.enabled && state.supported;
+    var id = 0;
+    for (final digit in conversation.codeUnits) {
+      id = (31 * id + digit) & 0x7fffffff;
+    }
+    final reply = locale == 'en' ? 'Reply' : 'উত্তর দিন';
+    await _notifications.show(
+      id: id, title: title, body: body,
+      payload: jsonEncode({'conversationId': conversation, 'userId': user, 'deviceId': device, 'locale': locale}),
+      notificationDetails: NotificationDetails(android: AndroidNotificationDetails(
+        _messages.id, _messages.name, importance: Importance.high, priority: Priority.high, tag: conversation,
+        category: AndroidNotificationCategory.message,
+        visibility: NotificationVisibility.private,
+        silent: expand,
+        styleInformation: bubble ? MessagingStyleInformation(
+          Person(name: locale == 'en' ? 'You' : 'আপনি'),
+          messages: [Message(body ?? '', DateTime.now(), Person(name: title))],
+        ) : null,
+        actions: [if (device != null) AndroidNotificationAction('reply', reply, cancelNotification: !bubble, inputs: [AndroidNotificationActionInput(label: reply)])],
+      )),
+    );
+    if (!bubble) return false;
+    final metadata = {
+      'notificationId': id, 'conversation': conversation, 'device': device, 'title': title, 'expand': expand,
+    };
+    // Android enqueues notify() asynchronously, so the first lookup may precede the system post.
+    for (final pause in [Duration.zero, const Duration(milliseconds: 120), const Duration(milliseconds: 350)]) {
+      if (pause != Duration.zero) await Future<void>.delayed(pause);
+      if (await bubbleChannel.invokeMethod<bool>('decorate', metadata).catchError((Object _) => false) == true) return true;
+    }
+    return false;
   }
 
   Future<void> _send(String token) async {

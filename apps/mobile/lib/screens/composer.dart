@@ -16,6 +16,7 @@ import 'package:video_player/video_player.dart';
 import '../chat/chat.dart';
 import '../chat/media.dart';
 import '../chat/models.dart';
+import '../core/api.dart';
 import '../core/prefs.dart';
 import '../ui/format.dart';
 import '../ui/theme.dart';
@@ -76,7 +77,14 @@ class _ComposerState extends State<Composer> {
   }
 
   void _fail(Object err) {
-    if (mounted) showMessage(context, err is Exception || err is Error ? t('পাঠানো যায়নি', 'Could not send') : '$err', error: true);
+    if (!mounted) return;
+    final message = switch (err) {
+      ApiError(status: 0) => t('সংযোগ পাওয়া যাচ্ছে না। আবার চেষ্টা করুন।', 'Connection unavailable. Try again.'),
+      ApiError(code: 'unavailable') => t('বার্তা পাঠানোর সেবা এখন ব্যস্ত। আবার চেষ্টা করুন।', 'Messaging is temporarily unavailable. Try again.'),
+      ApiError(:final message) => message,
+      _ => t('পাঠানো যায়নি', 'Could not send'),
+    };
+    showMessage(context, message, error: true);
   }
 
   Future<void> send() async {

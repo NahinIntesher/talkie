@@ -13,6 +13,7 @@ import 'core/prefs.dart';
 import 'core/push.dart';
 import 'core/session.dart';
 import 'screens/home.dart';
+import 'screens/floating_chat.dart';
 import 'screens/signin.dart';
 import 'ui/theme.dart';
 import 'ui/widgets.dart';
@@ -23,6 +24,11 @@ Future<void> main() async {
   await Future.wait([Crypto.init(), initializeDateFormatting('bn'), initializeDateFormatting('en')]);
   final prefs = Prefs();
   await prefs.load();
+  final initialRoute = WidgetsBinding.instance.platformDispatcher.defaultRouteName;
+  if (initialRoute.startsWith('/floating-chat')) {
+    runApp(FloatingChatApp(prefs: prefs, route: initialRoute));
+    return;
+  }
   await push.init(bangla: prefs.bn);
   final session = Session();
   session.restore();

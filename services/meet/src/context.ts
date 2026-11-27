@@ -1,4 +1,4 @@
-import { AppError, type Snowflake } from '@talkie/core';
+import { lookupInternal, type Logger, type Snowflake } from '@talkie/core';
 import { writeOutbox, type Database, type Executor } from '@talkie/db';
 import type { OutboxRelay } from '@talkie/bus';
 import type { installAuth } from '@talkie/auth-kit';
@@ -22,36 +22,19 @@ export interface Context {
   services: Services;
 }
 
-async function internal<T>(env: MeetEnv, url: string, body?: unknown): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: body === undefined ? 'GET' : 'POST',
-      headers: { 'x-internal-token': env.INTERNAL_TOKEN, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(5_000),
-    });
-  } catch {
-    throw new AppError('unavailable', 'Talkie is busy right now. Please try again in a moment.');
-  }
-  if (response.status === 404) throw new AppError('not_found', 'Not found.');
-  if (!response.ok) throw new AppError('unavailable', 'Talkie is busy right now. Please try again in a moment.');
-  return (await response.json()) as T;
-}
-
 /** What the meet service asks other services. Display names are cached for a few minutes. */
-export function services(env: MeetEnv) {
+export function services(env: MeetEnv, log: Logger) {
   const names = new Map<string, { at: number; name: string }>();
   return {
     conversation: (conversationId: string) =>
-      internal<{ memberIds: string[]; kind: 'direct' | 'group' }>(env, `${env.CHAT_URL}/internal/conversations/${conversationId}/members`),
+      lookupInternal<{ memberIds: string[]; kind: 'direct' | 'group' }>(env.INTERNAL_TOKEN, log, 'chat.members', `${env.CHAT_URL}/internal/conversations/${conversationId}/members`),
     relationships: async (userId: string, otherIds: string[]) =>
-      (await internal<{ relationships: Array<{ userId: string; blocked: boolean }> }>(env, `${env.USERS_URL}/internal/relationships`, { userId, otherIds })).relationships,
-    devices: async (userIds: string[]) => (await internal<{ devices: DeviceKey[] }>(env, `${env.AUTH_URL}/internal/device-keys`, { userIds })).devices,
+      (await lookupInternal<{ relationships: Array<{ userId: string; blocked: boolean }> }>(env.INTERNAL_TOKEN, log, 'users.relationships', `${env.USERS_URL}/internal/relationships`, { userId, otherIds })).relationships,
+    devices: async (userIds: string[]) => (await lookupInternal<{ devices: DeviceKey[] }>(env.INTERNAL_TOKEN, log, 'auth.device-keys', `${env.AUTH_URL}/internal/device-keys`, { userIds })).devices,
     async displayName(userId: string) {
       const hit = names.get(userId);
       if (hit && Date.now() - hit.at < 300_000) return hit.name;
-      const { profile } = await internal<{ profile: { displayName: string } }>(env, `${env.USERS_URL}/internal/profiles/${userId}`);
+      const { profile } = await lookupInternal<{ profile: { displayName: string } }>(env.INTERNAL_TOKEN, log, 'users.profile', `${env.USERS_URL}/internal/profiles/${userId}`);
       names.set(userId, { at: Date.now(), name: profile.displayName });
       return profile.displayName;
     },

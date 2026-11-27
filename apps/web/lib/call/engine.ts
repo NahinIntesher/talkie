@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { ExternalE2EEKeyProvider, Room, RoomEvent, Track, type LocalTrackPublication } from 'livekit-client';
 import * as e2ee from '@talkie/e2ee';
 import type { CallInfo, DeviceKey, MediaGrant } from '@talkie/contracts';
-import { api, ApiError } from '../api';
+import { api, ApiError, retryTemporary } from '../api';
 import { realtime } from '../realtime';
 import { deviceKeys, senderKeys } from '../chat/keys';
 import { loadProfiles } from '../chat/engine';
@@ -149,6 +149,7 @@ async function connect(grant: MediaGrant, callKey: string, video: boolean): Prom
 }
 
 function friendly(error: unknown): string {
+  if (error instanceof ApiError && error.status === 0) return 'Connection unavailable. Try calling again.';
   if (error instanceof ApiError) return error.message;
   if ((error as Error)?.name === 'NotAllowedError') return 'Allow camera and microphone access to call.';
   return 'The call could not connect.';
@@ -169,9 +170,12 @@ export async function startCall(conversationId: string, media: 'audio' | 'video'
   let startedId: string | undefined;
   try {
     const callKey = e2ee.newCallKey();
-    const { devices } = await api<{ devices: DeviceKey[] }>(`/chat/conversations/${conversationId}/devices?fresh=1&media=1`);
+    const { devices } = await retryTemporary(() => api<{ devices: DeviceKey[] }>(
+      `/chat/conversations/${conversationId}/devices?fresh=1&media=1`, { signal: AbortSignal.timeout(12_000) },
+    ));
     const dial = (recipients: DeviceKey[]) => api<{ call: CallInfo; grant: MediaGrant | null }>('/meet/calls', {
       method: 'POST',
+      signal: AbortSignal.timeout(18_000),
       body: { conversationId, media, keys: e2ee.sealSecret(callKey, keys.pair, [...recipients, { deviceId: keys.deviceId, identityKey: keys.pair.publicKey, userId: '' }]) },
     });
     const { call, grant } = await dial(devices).catch((error: unknown) => {
@@ -200,6 +204,10 @@ export async function startCall(conversationId: string, media: 'audio' | 'video'
       await refreshCurrent();
       if (get().recoverable) return null;
     }
+    if (!startedId && error instanceof ApiError && (error.status === 0 || error.status >= 500)) {
+      await refreshCurrent();
+      if (get().recoverable?.conversationId === conversationId) return null;
+    }
     return friendly(error);
   } finally {
     startingCall = false;
@@ -214,8 +222,8 @@ async function keyFor(call: CallInfo): Promise<string> {
 }
 
 async function refreshCurrent() {
-  const { call } = await api<{ call: CallInfo | null }>('/meet/calls/current').catch(() => ({ call: null }));
-  if (bound && !get().session) set({ recoverable: call });
+  const result = await api<{ call: CallInfo | null }>('/meet/calls/current', { signal: AbortSignal.timeout(5_000) }).catch(() => null);
+  if (result && bound && !get().session) set({ recoverable: result.call });
 }
 
 export async function resumeCall(): Promise<string | null> {

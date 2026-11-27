@@ -114,7 +114,7 @@ async function health(res) {
     new Promise((resolve) => {
       const request = http.get({ host: '127.0.0.1', port, path, timeout: 2500 }, (reply) => {
         reply.resume();
-        resolve(reply.statusCode && reply.statusCode < 500 ? 'up' : `error ${reply.statusCode}`);
+        resolve(reply.statusCode >= 200 && reply.statusCode < 400 ? 'up' : `error ${reply.statusCode}`);
       });
       request.on('timeout', () => request.destroy());
       request.on('error', () => resolve('down'));
@@ -141,7 +141,7 @@ async function health(res) {
     });
   const names = SERVICES.map(([name]) => name);
   const [results, meetCheck, notifyCheck] = await Promise.all([
-    Promise.all([...names.map((name) => probe(port[name], '/healthz')), probe(port.web, '/')]),
+    Promise.all([...names.map((name) => probe(port[name], '/readyz')), probe(port.web, '/')]),
     selfcheck('meet'),
     selfcheck('notify'),
   ]);
