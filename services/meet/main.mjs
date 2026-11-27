@@ -187,6 +187,12 @@ import rateLimit from "@fastify/rate-limit";
 import { Redis } from "ioredis";
 import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
+
+// packages/core/src/crypto.ts
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+var safeEqual = (a, b) => a.length === b.length && timingSafeEqual(a, b);
+
+// packages/core/src/server.ts
 async function createService(options) {
   const { env: env2, name } = options;
   const log = createLogger(name, env2.LOG_LEVEL);
@@ -201,6 +207,7 @@ async function createService(options) {
     ajv: { customOptions: { removeAdditional: "all", coerceTypes: false } }
   };
   const app = Fastify(fastifyOptions);
+  const internalToken = Buffer.from(env2.INTERNAL_TOKEN);
   const redis = env2.REDIS_URL ? new Redis(env2.REDIS_URL, { lazyConnect: false, maxRetriesPerRequest: 2, enableAutoPipelining: true }) : null;
   redis?.on("error", (error) => log.warn({ err: error }, "redis error"));
   app.addHook("onSend", async (request, reply) => {
@@ -220,6 +227,10 @@ async function createService(options) {
     timeWindow: "1 minute",
     ...redis ? { redis, nameSpace: `rl:${name}:` } : {},
     keyGenerator: (request) => request.auth?.userId ?? request.ip,
+    allowList: (request) => {
+      const token = request.headers["x-internal-token"];
+      return request.routeOptions.url?.startsWith("/internal/") === true && typeof token === "string" && safeEqual(Buffer.from(token), internalToken);
+    },
     errorResponseBuilder: (_request, context) => new AppError("rate_limited", "Too many requests. Please slow down.", { retryAfterSeconds: Math.ceil(context.ttl / 1e3) })
   });
   app.setErrorHandler((error, request, reply) => {
@@ -326,6 +337,31 @@ var Snowflake = class {
     return new Date(Number((BigInt(id2) >> WORKER_BITS + SEQUENCE_BITS) + EPOCH));
   }
 };
+
+// packages/core/src/net.ts
+async function lookupInternal(token, log, operation, url, body, retry = true) {
+  let status;
+  for (let attempt = 0; ; attempt++) {
+    status = void 0;
+    try {
+      const response = await fetch(url, {
+        method: body === void 0 ? "GET" : "POST",
+        headers: { "x-internal-token": token, ...body === void 0 ? {} : { "content-type": "application/json" } },
+        body: body === void 0 ? void 0 : JSON.stringify(body),
+        signal: AbortSignal.timeout(3e3)
+      });
+      status = response.status;
+      if (response.ok) return await response.json();
+      await response.body?.cancel();
+    } catch {
+    }
+    if (status === 404) throw new AppError("not_found", "Not found.");
+    if (!retry || attempt > 0 || status !== void 0 && status >= 400 && status < 500) break;
+    await new Promise((resolve2) => setTimeout(resolve2, 250));
+  }
+  log.warn({ operation, upstreamStatus: status }, "internal service request failed");
+  throw new AppError("unavailable", "Talkie is busy right now. Please try again in a moment.");
+}
 
 // packages/core/src/series.ts
 function dailySeries(rows, days, now = /* @__PURE__ */ new Date()) {
@@ -669,7 +705,7 @@ function createBus(env2, log, consumerName) {
 
 // packages/auth-kit/src/index.ts
 import { readFileSync as readFileSync2 } from "node:fs";
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual as timingSafeEqual2 } from "node:crypto";
 import { importSPKI, jwtVerify } from "jose";
 var ACCESS_TOKEN_ALG = "EdDSA";
 function readPublicKey(env2) {
@@ -722,7 +758,7 @@ function installAuth(app, verifier, env2, publicRoutes = /* @__PURE__ */ new Set
     const token = bearer(request);
     if (token) request.auth = await verifier.verify(token);
   });
-  const internal2 = Buffer.from(env2.INTERNAL_TOKEN);
+  const internal = Buffer.from(env2.INTERNAL_TOKEN);
   return {
     requireAuth: async (request, _reply) => {
       if (!request.auth) throw new AppError("unauthorized", "Please sign in.");
@@ -734,7 +770,7 @@ function installAuth(app, verifier, env2, publicRoutes = /* @__PURE__ */ new Set
     /** Service-to-service routes. Nginx never forwards `/internal/*` from the internet. */
     requireInternal: async (request, _reply) => {
       const given = Buffer.from(String(request.headers["x-internal-token"] ?? ""));
-      if (given.length !== internal2.length || !timingSafeEqual(given, internal2))
+      if (given.length !== internal.length || !timingSafeEqual2(given, internal))
         throw new AppError("forbidden", "Internal route.");
     }
   };
@@ -884,32 +920,16 @@ function createLiveKit(env2, log) {
 }
 
 // services/meet/src/context.ts
-async function internal(env2, url, body) {
-  let response;
-  try {
-    response = await fetch(url, {
-      method: body === void 0 ? "GET" : "POST",
-      headers: { "x-internal-token": env2.INTERNAL_TOKEN, ...body === void 0 ? {} : { "content-type": "application/json" } },
-      body: body === void 0 ? void 0 : JSON.stringify(body),
-      signal: AbortSignal.timeout(5e3)
-    });
-  } catch {
-    throw new AppError("unavailable", "Talkie is busy right now. Please try again in a moment.");
-  }
-  if (response.status === 404) throw new AppError("not_found", "Not found.");
-  if (!response.ok) throw new AppError("unavailable", "Talkie is busy right now. Please try again in a moment.");
-  return await response.json();
-}
-function services(env2) {
+function services(env2, log) {
   const names = /* @__PURE__ */ new Map();
   return {
-    conversation: (conversationId) => internal(env2, `${env2.CHAT_URL}/internal/conversations/${conversationId}/members`),
-    relationships: async (userId, otherIds) => (await internal(env2, `${env2.USERS_URL}/internal/relationships`, { userId, otherIds })).relationships,
-    devices: async (userIds) => (await internal(env2, `${env2.AUTH_URL}/internal/device-keys`, { userIds })).devices,
+    conversation: (conversationId) => lookupInternal(env2.INTERNAL_TOKEN, log, "chat.members", `${env2.CHAT_URL}/internal/conversations/${conversationId}/members`),
+    relationships: async (userId, otherIds) => (await lookupInternal(env2.INTERNAL_TOKEN, log, "users.relationships", `${env2.USERS_URL}/internal/relationships`, { userId, otherIds })).relationships,
+    devices: async (userIds) => (await lookupInternal(env2.INTERNAL_TOKEN, log, "auth.device-keys", `${env2.AUTH_URL}/internal/device-keys`, { userIds })).devices,
     async displayName(userId) {
       const hit = names.get(userId);
       if (hit && Date.now() - hit.at < 3e5) return hit.name;
-      const { profile } = await internal(env2, `${env2.USERS_URL}/internal/profiles/${userId}`);
+      const { profile } = await lookupInternal(env2.INTERNAL_TOKEN, log, "users.profile", `${env2.USERS_URL}/internal/profiles/${userId}`);
       names.set(userId, { at: Date.now(), name: profile.displayName });
       return profile.displayName;
     }
@@ -1430,10 +1450,10 @@ function registerCallRoutes(app, ctx2) {
 }
 
 // services/meet/src/meetings.ts
-import { randomInt } from "node:crypto";
+import { randomInt as randomInt2 } from "node:crypto";
 import { z as z4 } from "zod";
 var LETTERS = "abcdefghijkmnopqrstuvwxyz";
-var code = () => [3, 4, 3].map((n) => Array.from({ length: n }, () => LETTERS[randomInt(LETTERS.length)]).join("")).join("-");
+var code = () => [3, 4, 3].map((n) => Array.from({ length: n }, () => LETTERS[randomInt2(LETTERS.length)]).join("")).join("-");
 var codeSchema = z4.string().regex(/^[a-z]{3}-[a-z]{4}-[a-z]{3}$/, "Invalid meeting code");
 var controlsOf = (row) => ({
   hostManagement: Number(row.host_management) === 1,
@@ -2217,7 +2237,7 @@ var relay = startOutboxRelay(db, bus, service.log);
 var lk = createLiveKit(env, service.log);
 if (!lk.configured) service.log.warn("LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET are not set: calls and meetings are disabled");
 service.app.addContentTypeParser("application/webhook+json", { parseAs: "string" }, (_request, body, done) => done(null, body));
-var ctx = { db, ids, relay, guards, lk, env, services: services(env) };
+var ctx = { db, ids, relay, guards, lk, env, services: services(env, service.log) };
 var calls = registerCallRoutes(service.app, ctx);
 bus.subscribe("meet-call-revocations", ["device.revoked"], async (event) => {
   const { deviceId } = event.payload;

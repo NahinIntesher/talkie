@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);
 
 // services/media/src/main.ts
-import { randomBytes } from "node:crypto";
+import { randomBytes as randomBytes2 } from "node:crypto";
 import sharp from "sharp";
 import { z as z3 } from "zod";
 
@@ -189,6 +189,12 @@ import rateLimit from "@fastify/rate-limit";
 import { Redis } from "ioredis";
 import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
+
+// packages/core/src/crypto.ts
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+var safeEqual = (a, b) => a.length === b.length && timingSafeEqual(a, b);
+
+// packages/core/src/server.ts
 async function createService(options) {
   const { env: env2, name } = options;
   const log = createLogger(name, env2.LOG_LEVEL);
@@ -203,6 +209,7 @@ async function createService(options) {
     ajv: { customOptions: { removeAdditional: "all", coerceTypes: false } }
   };
   const app2 = Fastify(fastifyOptions);
+  const internalToken = Buffer.from(env2.INTERNAL_TOKEN);
   const redis = env2.REDIS_URL ? new Redis(env2.REDIS_URL, { lazyConnect: false, maxRetriesPerRequest: 2, enableAutoPipelining: true }) : null;
   redis?.on("error", (error) => log.warn({ err: error }, "redis error"));
   app2.addHook("onSend", async (request, reply) => {
@@ -222,6 +229,10 @@ async function createService(options) {
     timeWindow: "1 minute",
     ...redis ? { redis, nameSpace: `rl:${name}:` } : {},
     keyGenerator: (request) => request.auth?.userId ?? request.ip,
+    allowList: (request) => {
+      const token = request.headers["x-internal-token"];
+      return request.routeOptions.url?.startsWith("/internal/") === true && typeof token === "string" && safeEqual(Buffer.from(token), internalToken);
+    },
     errorResponseBuilder: (_request, context) => new AppError("rate_limited", "Too many requests. Please slow down.", { retryAfterSeconds: Math.ceil(context.ttl / 1e3) })
   });
   app2.setErrorHandler((error, request, reply) => {
@@ -659,7 +670,7 @@ function createBus(env2, log, consumerName) {
 
 // packages/auth-kit/src/index.ts
 import { readFileSync as readFileSync2 } from "node:fs";
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual as timingSafeEqual2 } from "node:crypto";
 import { importSPKI, jwtVerify } from "jose";
 var ACCESS_TOKEN_ALG = "EdDSA";
 function readPublicKey(env2) {
@@ -724,7 +735,7 @@ function installAuth(app2, verifier, env2, publicRoutes = /* @__PURE__ */ new Se
     /** Service-to-service routes. Nginx never forwards `/internal/*` from the internet. */
     requireInternal: async (request, _reply) => {
       const given = Buffer.from(String(request.headers["x-internal-token"] ?? ""));
-      if (given.length !== internal.length || !timingSafeEqual(given, internal))
+      if (given.length !== internal.length || !timingSafeEqual2(given, internal))
         throw new AppError("forbidden", "Internal route.");
     }
   };
@@ -1034,7 +1045,7 @@ app.post("/media/uploads", { preHandler: guards.requireAuth, config: { rateLimit
     if (Number(usage?.bytes_used ?? 0) + input.byteSize > env.USER_QUOTA_BYTES) fail("forbidden", "Your Talkie storage is full. Delete large chats to free space.");
   }
   const id2 = ids.next();
-  const key = joinKey(input.purpose, me.userId.slice(-4), `${id2}-${randomBytes(9).toString("base64url")}`);
+  const key = joinKey(input.purpose, me.userId.slice(-4), `${id2}-${randomBytes2(9).toString("base64url")}`);
   await db.run("INSERT INTO media_objects (id, owner_id, purpose, storage_key, content_type, byte_size, encrypted) VALUES (?, ?, ?, ?, ?, ?, ?)", [
     id2,
     me.userId,

@@ -187,6 +187,13 @@ import rateLimit from "@fastify/rate-limit";
 import { Redis } from "ioredis";
 import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
+
+// packages/core/src/crypto.ts
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+var randomToken = (bytes = 32) => randomBytes(bytes).toString("base64url");
+var safeEqual = (a, b) => a.length === b.length && timingSafeEqual(a, b);
+
+// packages/core/src/server.ts
 async function createService(options) {
   const { env: env2, name } = options;
   const log = createLogger(name, env2.LOG_LEVEL);
@@ -201,6 +208,7 @@ async function createService(options) {
     ajv: { customOptions: { removeAdditional: "all", coerceTypes: false } }
   };
   const app = Fastify(fastifyOptions);
+  const internalToken = Buffer.from(env2.INTERNAL_TOKEN);
   const redis = env2.REDIS_URL ? new Redis(env2.REDIS_URL, { lazyConnect: false, maxRetriesPerRequest: 2, enableAutoPipelining: true }) : null;
   redis?.on("error", (error) => log.warn({ err: error }, "redis error"));
   app.addHook("onSend", async (request, reply) => {
@@ -220,6 +228,10 @@ async function createService(options) {
     timeWindow: "1 minute",
     ...redis ? { redis, nameSpace: `rl:${name}:` } : {},
     keyGenerator: (request) => request.auth?.userId ?? request.ip,
+    allowList: (request) => {
+      const token = request.headers["x-internal-token"];
+      return request.routeOptions.url?.startsWith("/internal/") === true && typeof token === "string" && safeEqual(Buffer.from(token), internalToken);
+    },
     errorResponseBuilder: (_request, context) => new AppError("rate_limited", "Too many requests. Please slow down.", { retryAfterSeconds: Math.ceil(context.ttl / 1e3) })
   });
   app.setErrorHandler((error, request, reply) => {
@@ -327,9 +339,30 @@ var Snowflake = class {
   }
 };
 
-// packages/core/src/crypto.ts
-import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
-var randomToken = (bytes = 32) => randomBytes(bytes).toString("base64url");
+// packages/core/src/net.ts
+async function lookupInternal(token, log, operation, url, body, retry = true) {
+  let status;
+  for (let attempt = 0; ; attempt++) {
+    status = void 0;
+    try {
+      const response = await fetch(url, {
+        method: body === void 0 ? "GET" : "POST",
+        headers: { "x-internal-token": token, ...body === void 0 ? {} : { "content-type": "application/json" } },
+        body: body === void 0 ? void 0 : JSON.stringify(body),
+        signal: AbortSignal.timeout(3e3)
+      });
+      status = response.status;
+      if (response.ok) return await response.json();
+      await response.body?.cancel();
+    } catch {
+    }
+    if (status === 404) throw new AppError("not_found", "Not found.");
+    if (!retry || attempt > 0 || status !== void 0 && status >= 400 && status < 500) break;
+    await new Promise((resolve2) => setTimeout(resolve2, 250));
+  }
+  log.warn({ operation, upstreamStatus: status }, "internal service request failed");
+  throw new AppError("unavailable", "Talkie is busy right now. Please try again in a moment.");
+}
 
 // packages/core/src/series.ts
 function dailySeries(rows, days, now = /* @__PURE__ */ new Date()) {
@@ -726,7 +759,7 @@ function installAuth(app, verifier, env2, publicRoutes = /* @__PURE__ */ new Set
     const token = bearer(request);
     if (token) request.auth = await verifier.verify(token);
   });
-  const internal2 = Buffer.from(env2.INTERNAL_TOKEN);
+  const internal = Buffer.from(env2.INTERNAL_TOKEN);
   return {
     requireAuth: async (request, _reply) => {
       if (!request.auth) throw new AppError("unauthorized", "Please sign in.");
@@ -738,7 +771,7 @@ function installAuth(app, verifier, env2, publicRoutes = /* @__PURE__ */ new Set
     /** Service-to-service routes. Nginx never forwards `/internal/*` from the internet. */
     requireInternal: async (request, _reply) => {
       const given = Buffer.from(String(request.headers["x-internal-token"] ?? ""));
-      if (given.length !== internal2.length || !timingSafeEqual2(given, internal2))
+      if (given.length !== internal.length || !timingSafeEqual2(given, internal))
         throw new AppError("forbidden", "Internal route.");
     }
   };
@@ -762,31 +795,16 @@ async function internalFetch(env2, url, init = {}) {
 }
 
 // services/chat/src/context.ts
-async function internal(env2, url, body) {
-  let response;
-  try {
-    response = await fetch(url, {
-      method: "POST",
-      headers: { "x-internal-token": env2.INTERNAL_TOKEN, "content-type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(5e3)
-    });
-  } catch {
-    throw new AppError("unavailable", "Talkie is busy right now. Please try again in a moment.");
-  }
-  if (!response.ok) throw new AppError("unavailable", "Talkie is busy right now. Please try again in a moment.");
-  return await response.json();
-}
-var mediaClient = (env2) => ({
-  verify: async (ownerId, mediaIds, purposes) => mediaIds.length ? (await internal(env2, `${env2.MEDIA_URL}/internal/media/verify`, { ownerId, mediaIds, purposes })).valid : [],
+var mediaClient = (env2, log) => ({
+  verify: async (ownerId, mediaIds, purposes) => mediaIds.length ? (await lookupInternal(env2.INTERNAL_TOKEN, log, "media.verify", `${env2.MEDIA_URL}/internal/media/verify`, { ownerId, mediaIds, purposes })).valid : [],
   release: async (mediaIds) => {
     if (!mediaIds.length) return;
-    await internal(env2, `${env2.MEDIA_URL}/internal/media/release`, { mediaIds }).catch(() => {
+    await lookupInternal(env2.INTERNAL_TOKEN, log, "media.release", `${env2.MEDIA_URL}/internal/media/release`, { mediaIds }, false).catch(() => {
     });
   }
 });
-var usersClient = (env2) => ({
-  relationships: async (userId, otherIds) => (await internal(env2, `${env2.USERS_URL}/internal/relationships`, { userId, otherIds })).relationships
+var usersClient = (env2, log) => ({
+  relationships: async (userId, otherIds) => (await lookupInternal(env2.INTERNAL_TOKEN, log, "users.relationships", `${env2.USERS_URL}/internal/relationships`, { userId, otherIds })).relationships
 });
 async function messageRecipients(ctx2, conversationId, fresh = false) {
   const members = await activeMemberIds(ctx2.db, conversationId);
@@ -797,7 +815,7 @@ async function messageRecipients(ctx2, conversationId, fresh = false) {
   ]);
   return [...devices, ...backups];
 }
-function deviceDirectory(env2) {
+function deviceDirectory(env2, log) {
   const cache = /* @__PURE__ */ new Map();
   const TTL = 3e4;
   return {
@@ -807,7 +825,7 @@ function deviceDirectory(env2) {
       const missing = unique.filter((id2) => fresh || (cache.get(id2)?.at ?? 0) + TTL < now);
       for (let offset = 0; offset < missing.length; offset += 1e3) {
         const batch2 = missing.slice(offset, offset + 1e3);
-        const { devices } = await internal(env2, `${env2.AUTH_URL}/internal/device-keys`, { userIds: batch2 });
+        const { devices } = await lookupInternal(env2.INTERNAL_TOKEN, log, "auth.device-keys", `${env2.AUTH_URL}/internal/device-keys`, { userIds: batch2 });
         for (const id2 of batch2) cache.set(id2, { at: now, devices: [] });
         for (const device2 of devices) cache.get(device2.userId)?.devices.push(device2);
       }
@@ -849,6 +867,14 @@ async function systemMessage(tx, ctx2, conversationId, actor, event) {
 }
 var MESSAGE_COLUMNS = `m.id, m.conversation_id, m.sender_id, m.sender_device_id, m.kind, m.ciphertext, m.nonce, k.sealed_key, k.wrap_device_id,
   m.system_event, m.reply_to_id, m.forwarded_count, m.edited_at, m.deleted_at, m.expires_at, m.created_at`;
+function systemEvent(value) {
+  try {
+    const event = typeof value === "string" ? JSON.parse(value) : value;
+    return typeof event?.type === "string" ? event : null;
+  } catch {
+    return null;
+  }
+}
 async function toWire(db2, rows, viewerId) {
   if (!rows.length) return [];
   const ids2 = rows.map((row) => row.id);
@@ -881,7 +907,7 @@ async function toWire(db2, rows, viewerId) {
       nonce: row.nonce ? row.nonce.toString("base64url") : null,
       sealedKey: row.sealed_key ? row.sealed_key.toString("base64url") : null,
       ...row.wrap_device_id ? { keySenderDeviceId: row.wrap_device_id } : {},
-      systemEvent: row.system_event ? JSON.parse(row.system_event) : null,
+      systemEvent: systemEvent(row.system_event),
       replyToId: row.reply_to_id,
       forwardedCount: row.forwarded_count,
       editedAt: row.edited_at?.toISOString() ?? null,
@@ -1738,7 +1764,8 @@ function registerMessageRoutes(app, ctx2) {
     const more = rows.length > query.limit;
     const page = rows.slice(0, query.limit);
     if (!newer) page.reverse();
-    return { messages: await toWire(db2, page, me.userId), hasMore: more, receipts: await receiptsFor(db2, id2, me.userId, member.kind) };
+    const [messages, receipts] = await Promise.all([toWire(db2, page, me.userId), receiptsFor(db2, id2, me.userId, member.kind)]);
+    return { messages, hasMore: more, receipts };
   });
   app.get("/chat/messages/:id", auth, async (request) => {
     const me = caller(request);
@@ -2176,8 +2203,8 @@ function registerHistoryRoutes(app, { db: db2, devices, guards: guards2, ids: id
 // services/chat/src/admin.ts
 import { z as z7 } from "zod";
 function registerAdminRoutes(app, { db: db2, guards: guards2 }) {
-  const internal2 = { preHandler: guards2.requireInternal };
-  app.get("/internal/admin/stats", internal2, async (request) => {
+  const internal = { preHandler: guards2.requireInternal };
+  app.get("/internal/admin/stats", internal, async (request) => {
     const { days } = z7.object({ days: z7.coerce.number().int().min(7).max(90).default(30) }).parse(request.query);
     const from = Snowflake.floor(seriesStart(days));
     const today = Snowflake.floor(seriesStart(1));
@@ -2203,7 +2230,7 @@ function registerAdminRoutes(app, { db: db2, guards: guards2 }) {
       messagesDaily: dailySeries(daily, days)
     };
   });
-  app.get("/internal/admin/users/:userId", internal2, async (request) => {
+  app.get("/internal/admin/users/:userId", internal, async (request) => {
     const { userId } = z7.object({ userId: id }).parse(request.params);
     const [membership2, sent] = await Promise.all([
       db2.one(
@@ -2226,7 +2253,7 @@ function registerAdminRoutes(app, { db: db2, guards: guards2 }) {
       lastMessageAt: sent?.last ? Snowflake.timeOf(sent.last).toISOString() : null
     };
   });
-  app.get("/internal/admin/groups/:id", internal2, async (request) => {
+  app.get("/internal/admin/groups/:id", internal, async (request) => {
     const { id: id2 } = z7.object({ id }).parse(request.params);
     const group = await db2.one(
       `SELECT g.name, g.description, c.created_by, c.created_at,
@@ -2254,7 +2281,7 @@ var ids = new Snowflake(env.WORKER_ID);
 var guards = installAuth(service.app, await createVerifier(env), env);
 var bus = createBus(env, service.log, "chat");
 var relay = startOutboxRelay(db, bus, service.log);
-var ctx = { db, ids, relay, guards, env, devices: deviceDirectory(env), users: usersClient(env), media: mediaClient(env) };
+var ctx = { db, ids, relay, guards, env, devices: deviceDirectory(env, service.log), users: usersClient(env, service.log), media: mediaClient(env, service.log) };
 registerConversationRoutes(service.app, ctx);
 registerMessageRoutes(service.app, ctx);
 registerHistoryRoutes(service.app, ctx);

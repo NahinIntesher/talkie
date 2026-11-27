@@ -187,6 +187,12 @@ import rateLimit from "@fastify/rate-limit";
 import { Redis } from "ioredis";
 import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
+
+// packages/core/src/crypto.ts
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+var safeEqual = (a, b) => a.length === b.length && timingSafeEqual(a, b);
+
+// packages/core/src/server.ts
 async function createService(options) {
   const { env: env2, name } = options;
   const log = createLogger(name, env2.LOG_LEVEL);
@@ -201,6 +207,7 @@ async function createService(options) {
     ajv: { customOptions: { removeAdditional: "all", coerceTypes: false } }
   };
   const app = Fastify(fastifyOptions);
+  const internalToken = Buffer.from(env2.INTERNAL_TOKEN);
   const redis = env2.REDIS_URL ? new Redis(env2.REDIS_URL, { lazyConnect: false, maxRetriesPerRequest: 2, enableAutoPipelining: true }) : null;
   redis?.on("error", (error) => log.warn({ err: error }, "redis error"));
   app.addHook("onSend", async (request, reply) => {
@@ -220,6 +227,10 @@ async function createService(options) {
     timeWindow: "1 minute",
     ...redis ? { redis, nameSpace: `rl:${name}:` } : {},
     keyGenerator: (request) => request.auth?.userId ?? request.ip,
+    allowList: (request) => {
+      const token = request.headers["x-internal-token"];
+      return request.routeOptions.url?.startsWith("/internal/") === true && typeof token === "string" && safeEqual(Buffer.from(token), internalToken);
+    },
     errorResponseBuilder: (_request, context) => new AppError("rate_limited", "Too many requests. Please slow down.", { retryAfterSeconds: Math.ceil(context.ttl / 1e3) })
   });
   app.setErrorHandler((error, request, reply) => {
