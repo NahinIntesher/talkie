@@ -50,6 +50,7 @@ var baseEnvSchema = z.object({
    */
   DB_SHARED_NAME: z.string().regex(/^[A-Za-z0-9_]*$/).default(""),
   DB_POOL_SIZE: z.coerce.number().int().positive().default(10),
+  AUTH_URL: z.url().default("http://127.0.0.1:4101"),
   DB_SSL: bool.default(false),
   REDIS_URL: z.string().optional(),
   /**
@@ -585,10 +586,22 @@ function readPublicKey(env2) {
   if (env2.JWT_PUBLIC_KEY_FILE) return readFileSync2(configPath(env2.JWT_PUBLIC_KEY_FILE), "utf8");
   throw new Error("JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_FILE is required");
 }
-async function createVerifier(env2, publicKeyPem = readPublicKey(env2)) {
+var remoteSessionCheck = (env2) => async (auth) => {
+  try {
+    const result = await internalFetch(env2, `${env2.AUTH_URL}/internal/sessions/check`, {
+      method: "POST",
+      body: { userId: auth.userId, deviceId: auth.deviceId, sessionId: auth.sessionId }
+    });
+    return result.active === true;
+  } catch {
+    throw new AppError("unavailable", "Could not check your session. Try again.");
+  }
+};
+async function createVerifier(env2, publicKeyPem = readPublicKey(env2), check = remoteSessionCheck(env2)) {
   const key = await importSPKI(publicKeyPem, ACCESS_TOKEN_ALG);
   return {
     async verify(token) {
+      let auth;
       try {
         const { payload } = await jwtVerify(token, key, {
           algorithms: [ACCESS_TOKEN_ALG],
@@ -597,10 +610,12 @@ async function createVerifier(env2, publicKeyPem = readPublicKey(env2)) {
           clockTolerance: 5
         });
         if (!payload.sub || !payload.did || !payload.sid) throw new Error("incomplete token");
-        return { userId: payload.sub, deviceId: payload.did, sessionId: payload.sid, role: payload.role ?? "user" };
+        auth = { userId: payload.sub, deviceId: payload.did, sessionId: payload.sid, role: payload.role ?? "user" };
       } catch {
         throw new AppError("unauthorized", "Your session has expired. Please sign in again.");
       }
+      if (!await check(auth)) throw new AppError("session_revoked", "This device has been signed out.");
+      return auth;
     }
   };
 }
@@ -609,9 +624,10 @@ var bearer = (request) => {
   if (typeof header === "string" && header.startsWith("Bearer ")) return header.slice(7).trim() || null;
   return null;
 };
-function installAuth(app, verifier, env2) {
+function installAuth(app, verifier, env2, publicRoutes = /* @__PURE__ */ new Set()) {
   app.decorateRequest("auth", void 0);
   app.addHook("onRequest", async (request) => {
+    if (publicRoutes.has(request.url.split("?")[0])) return;
     const token = bearer(request);
     if (token) request.auth = await verifier.verify(token);
   });
@@ -636,6 +652,19 @@ var caller = (request) => {
   if (!request.auth) throw new AppError("unauthorized", "Please sign in.");
   return request.auth;
 };
+async function internalFetch(env2, url, init = {}) {
+  const response = await fetch(url, {
+    method: init.method ?? "GET",
+    headers: {
+      "x-internal-token": env2.INTERNAL_TOKEN,
+      ...init.body === void 0 ? {} : { "content-type": "application/json" }
+    },
+    body: init.body === void 0 ? void 0 : JSON.stringify(init.body),
+    signal: AbortSignal.timeout(5e3)
+  });
+  if (!response.ok) throw new AppError("unavailable", `Internal call failed (${response.status})`);
+  return await response.json();
+}
 
 // packages/contracts/src/index.ts
 import { z as z2 } from "zod";
@@ -644,7 +673,6 @@ var USERNAME_MAX = 32;
 var DISPLAY_NAME_MAX = 64;
 var ABOUT_MAX = 140;
 var OTP_LENGTH = 6;
-var MAX_LINKED_DEVICES = 5;
 var id = z2.string().regex(/^[1-9]\d{0,19}$/, "Invalid id");
 var email = z2.string().trim().toLowerCase().max(254).pipe(z2.email("Enter a valid email address"));
 var username = z2.string().trim().toLowerCase().min(USERNAME_MIN, `At least ${USERNAME_MIN} characters`).max(USERNAME_MAX, `At most ${USERNAME_MAX} characters`).regex(/^[a-z0-9._]+$/, "Use only letters, numbers, dot and underscore").refine((value) => !value.startsWith(".") && !value.endsWith(".") && !value.includes(".."), "Dots cannot be at the start, end or next to each other").refine((value) => /[a-z]/.test(value), "Include at least one letter");
@@ -660,8 +688,12 @@ var device = z2.object({
   /** Device identity key for end-to-end encryption, generated on the device. */
   identityKey: publicKey.optional()
 });
-var otpRequest = z2.object({ email, locale: locale.default("bn") });
-var otpVerify = z2.object({ challengeId: id, code: otpCode, device });
+var otpRequestKey = z2.string().regex(/^[A-Za-z0-9_-]{22}$/);
+var otpRequest = z2.object({ email, locale: locale.default("bn"), requestKey: otpRequestKey.optional() });
+var otpVerify = z2.union([
+  z2.object({ challengeId: id, code: otpCode, device }),
+  z2.object({ requestKey: otpRequestKey, code: otpCode, device })
+]);
 var signupComplete = z2.object({ signupToken: z2.string().min(20).max(512), username, displayName, device });
 var usernameCheck = z2.object({ username });
 var privacyAudience = z2.enum(["everyone", "contacts", "nobody"]);
@@ -683,7 +715,7 @@ var DELETE_FOR_EVERYONE_WINDOW_MS = 48 * 36e5;
 var b64 = (maxChars) => z2.string().regex(/^[A-Za-z0-9_-]*$/, "Invalid encoding").max(maxChars);
 var messageKind = z2.enum(["text", "image", "video", "audio", "voice", "document", "sticker", "location", "contact", "poll"]);
 var clientMessageId = z2.string().regex(/^[0-9A-Za-z]{26}$/, "Invalid client message id");
-var sealedKeys = z2.array(z2.object({ deviceId: id, sealedKey: b64(200) })).min(1).max(GROUP_MAX_MEMBERS * MAX_LINKED_DEVICES);
+var sealedKeys = z2.array(z2.object({ deviceId: id, sealedKey: b64(200) })).min(1).max(GROUP_MAX_MEMBERS * 5);
 var sendMessage = z2.object({
   clientMessageId,
   kind: messageKind,
@@ -1073,28 +1105,29 @@ var mailer = env.SMTP_HOST ? nodemailer.createTransport({
   secure: env.SMTP_SECURE,
   auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD ?? "" } : void 0,
   pool: true,
-  maxConnections: 5
+  maxConnections: 5,
+  connectionTimeout: 5e3,
+  greetingTimeout: 5e3,
+  socketTimeout: 14e3
 }) : null;
 service.app.post("/internal/email/otp", { preHandler: guards.requireInternal }, async (request) => {
   const input = z3.object({ to: email, code: otpCode, locale }).parse(request.body);
   if (!mailer) throw new AppError("unavailable", "Email delivery is not configured.");
   const message = otpEmail(input.code, input.locale);
   const id2 = ids.next();
+  const audit = (status, providerId, error) => {
+    void db.run(
+      "INSERT INTO email_deliveries (id, recipient, template, status, provider_message_id, error) VALUES (?, ?, ?, ?, ?, ?)",
+      [id2, input.to, "otp", status, providerId, error]
+    ).catch((err) => request.log.warn({ err }, "could not record OTP email delivery"));
+  };
   try {
     const sent = await mailer.sendMail({ from: env.MAIL_FROM, to: input.to, subject: message.subject, html: message.html, text: message.text });
-    await db.run("INSERT INTO email_deliveries (id, recipient, template, status, provider_message_id) VALUES (?, ?, 'otp', 'sent', ?)", [
-      id2,
-      input.to,
-      sent.messageId ?? null
-    ]);
+    audit("sent", sent.messageId ?? null, null);
     return { ok: true };
   } catch (error) {
     request.log.error({ err: error }, "otp email failed");
-    await db.run("INSERT INTO email_deliveries (id, recipient, template, status, error) VALUES (?, ?, 'otp', 'failed', ?)", [
-      id2,
-      input.to,
-      String(error.message).slice(0, 500)
-    ]);
+    audit("failed", null, String(error.message).slice(0, 500));
     throw new AppError("unavailable", "We could not send the email. Please try again.");
   }
 });

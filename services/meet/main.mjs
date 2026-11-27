@@ -49,6 +49,7 @@ var baseEnvSchema = z.object({
    */
   DB_SHARED_NAME: z.string().regex(/^[A-Za-z0-9_]*$/).default(""),
   DB_POOL_SIZE: z.coerce.number().int().positive().default(10),
+  AUTH_URL: z.url().default("http://127.0.0.1:4101"),
   DB_SSL: bool.default(false),
   REDIS_URL: z.string().optional(),
   /**
@@ -676,10 +677,22 @@ function readPublicKey(env2) {
   if (env2.JWT_PUBLIC_KEY_FILE) return readFileSync2(configPath(env2.JWT_PUBLIC_KEY_FILE), "utf8");
   throw new Error("JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_FILE is required");
 }
-async function createVerifier(env2, publicKeyPem = readPublicKey(env2)) {
+var remoteSessionCheck = (env2) => async (auth) => {
+  try {
+    const result = await internalFetch(env2, `${env2.AUTH_URL}/internal/sessions/check`, {
+      method: "POST",
+      body: { userId: auth.userId, deviceId: auth.deviceId, sessionId: auth.sessionId }
+    });
+    return result.active === true;
+  } catch {
+    throw new AppError("unavailable", "Could not check your session. Try again.");
+  }
+};
+async function createVerifier(env2, publicKeyPem = readPublicKey(env2), check = remoteSessionCheck(env2)) {
   const key = await importSPKI(publicKeyPem, ACCESS_TOKEN_ALG);
   return {
     async verify(token) {
+      let auth;
       try {
         const { payload } = await jwtVerify(token, key, {
           algorithms: [ACCESS_TOKEN_ALG],
@@ -688,10 +701,12 @@ async function createVerifier(env2, publicKeyPem = readPublicKey(env2)) {
           clockTolerance: 5
         });
         if (!payload.sub || !payload.did || !payload.sid) throw new Error("incomplete token");
-        return { userId: payload.sub, deviceId: payload.did, sessionId: payload.sid, role: payload.role ?? "user" };
+        auth = { userId: payload.sub, deviceId: payload.did, sessionId: payload.sid, role: payload.role ?? "user" };
       } catch {
         throw new AppError("unauthorized", "Your session has expired. Please sign in again.");
       }
+      if (!await check(auth)) throw new AppError("session_revoked", "This device has been signed out.");
+      return auth;
     }
   };
 }
@@ -700,9 +715,10 @@ var bearer = (request) => {
   if (typeof header === "string" && header.startsWith("Bearer ")) return header.slice(7).trim() || null;
   return null;
 };
-function installAuth(app, verifier, env2) {
+function installAuth(app, verifier, env2, publicRoutes = /* @__PURE__ */ new Set()) {
   app.decorateRequest("auth", void 0);
   app.addHook("onRequest", async (request) => {
+    if (publicRoutes.has(request.url.split("?")[0])) return;
     const token = bearer(request);
     if (token) request.auth = await verifier.verify(token);
   });
@@ -727,6 +743,19 @@ var caller = (request) => {
   if (!request.auth) throw new AppError("unauthorized", "Please sign in.");
   return request.auth;
 };
+async function internalFetch(env2, url, init = {}) {
+  const response = await fetch(url, {
+    method: init.method ?? "GET",
+    headers: {
+      "x-internal-token": env2.INTERNAL_TOKEN,
+      ...init.body === void 0 ? {} : { "content-type": "application/json" }
+    },
+    body: init.body === void 0 ? void 0 : JSON.stringify(init.body),
+    signal: AbortSignal.timeout(5e3)
+  });
+  if (!response.ok) throw new AppError("unavailable", `Internal call failed (${response.status})`);
+  return await response.json();
+}
 
 // services/meet/src/livekit.ts
 import { AccessToken, EgressClient, EncodedFileOutput, RoomServiceClient, StreamOutput, StreamProtocol, TrackSource, WebhookReceiver, S3Upload } from "livekit-server-sdk";
@@ -892,7 +921,6 @@ var USERNAME_MAX = 32;
 var DISPLAY_NAME_MAX = 64;
 var ABOUT_MAX = 140;
 var OTP_LENGTH = 6;
-var MAX_LINKED_DEVICES = 5;
 var id = z2.string().regex(/^[1-9]\d{0,19}$/, "Invalid id");
 var email = z2.string().trim().toLowerCase().max(254).pipe(z2.email("Enter a valid email address"));
 var username = z2.string().trim().toLowerCase().min(USERNAME_MIN, `At least ${USERNAME_MIN} characters`).max(USERNAME_MAX, `At most ${USERNAME_MAX} characters`).regex(/^[a-z0-9._]+$/, "Use only letters, numbers, dot and underscore").refine((value) => !value.startsWith(".") && !value.endsWith(".") && !value.includes(".."), "Dots cannot be at the start, end or next to each other").refine((value) => /[a-z]/.test(value), "Include at least one letter");
@@ -908,8 +936,12 @@ var device = z2.object({
   /** Device identity key for end-to-end encryption, generated on the device. */
   identityKey: publicKey.optional()
 });
-var otpRequest = z2.object({ email, locale: locale.default("bn") });
-var otpVerify = z2.object({ challengeId: id, code: otpCode, device });
+var otpRequestKey = z2.string().regex(/^[A-Za-z0-9_-]{22}$/);
+var otpRequest = z2.object({ email, locale: locale.default("bn"), requestKey: otpRequestKey.optional() });
+var otpVerify = z2.union([
+  z2.object({ challengeId: id, code: otpCode, device }),
+  z2.object({ requestKey: otpRequestKey, code: otpCode, device })
+]);
 var signupComplete = z2.object({ signupToken: z2.string().min(20).max(512), username, displayName, device });
 var usernameCheck = z2.object({ username });
 var privacyAudience = z2.enum(["everyone", "contacts", "nobody"]);
@@ -931,7 +963,7 @@ var DELETE_FOR_EVERYONE_WINDOW_MS = 48 * 36e5;
 var b64 = (maxChars) => z2.string().regex(/^[A-Za-z0-9_-]*$/, "Invalid encoding").max(maxChars);
 var messageKind = z2.enum(["text", "image", "video", "audio", "voice", "document", "sticker", "location", "contact", "poll"]);
 var clientMessageId = z2.string().regex(/^[0-9A-Za-z]{26}$/, "Invalid client message id");
-var sealedKeys = z2.array(z2.object({ deviceId: id, sealedKey: b64(200) })).min(1).max(GROUP_MAX_MEMBERS * MAX_LINKED_DEVICES);
+var sealedKeys = z2.array(z2.object({ deviceId: id, sealedKey: b64(200) })).min(1).max(GROUP_MAX_MEMBERS * 5);
 var sendMessage = z2.object({
   clientMessageId,
   kind: messageKind,
@@ -1120,13 +1152,20 @@ function registerCallRoutes(app, ctx2) {
     if (await busy(me.userId, "0")) fail("conflict", "You are already on a call.");
     const running = await db2.one("SELECT * FROM calls WHERE conversation_id = ? AND state = 'active' AND created_at > CURRENT_TIMESTAMP(3) - INTERVAL 6 HOUR ORDER BY id DESC LIMIT 1", [input.conversationId]);
     if (running && conversation.kind === "group") {
+      const current = await view(running, me);
+      if (!current.sealedKey) fail("conflict", "This device cannot join the existing encrypted call.");
       await db2.run("INSERT INTO call_participants (call_id, user_id, state, joined_at) VALUES (?, ?, 'joined', CURRENT_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE state = 'joined', joined_at = COALESCE(joined_at, CURRENT_TIMESTAMP(3)), left_at = NULL", [running.id, me.userId]);
       return { call: await view(running, me), grant: await grant(running, me), joinedExisting: true };
     }
     const devices = await ctx2.services.devices(conversation.memberIds);
+    const provided = new Map(input.keys.map((key) => [key.deviceId, key]));
+    if (!devices.some((device2) => device2.userId !== me.userId)) fail("conflict", "The other participants have no active device ready for encrypted calls.");
+    if (devices.some((device2) => device2.userId !== me.userId && !provided.has(device2.deviceId))) {
+      throw new AppError("devices_changed", "The call devices changed. Try again.", { devices });
+    }
     const allowed = new Set(devices.map((d) => d.deviceId));
     allowed.add(me.deviceId);
-    const keys = input.keys.filter((key) => allowed.has(key.deviceId));
+    const keys = [...provided.values()].filter((key) => allowed.has(key.deviceId));
     const id2 = ctx2.ids.next();
     const directBusy = conversation.kind === "direct" && await busy(others[0], id2);
     const call = await db2.tx(async (tx) => {
@@ -1158,8 +1197,12 @@ function registerCallRoutes(app, ctx2) {
     const { id: id2 } = z3.object({ id }).parse(request.params);
     const call = await load(id2, me);
     if (!OPEN.includes(call.state)) fail("conflict", "This call has ended.");
+    if (call.conversation_id && !(await ctx2.services.conversation(call.conversation_id)).memberIds.includes(me.userId)) fail("not_found", "Call not found.");
+    if (!await db2.one("SELECT 1 FROM call_keys WHERE call_id = ? AND device_id = ?", [id2, me.deviceId])) fail("conflict", "This device cannot join this encrypted call.");
     if (await busy(me.userId, id2)) fail("conflict", "Leave your other call first.");
     await db2.tx(async (tx) => {
+      const current = await tx.one("SELECT state FROM calls WHERE id = ? FOR UPDATE", [id2]);
+      if (!current || !OPEN.includes(current.state)) fail("conflict", "This call has ended.");
       await tx.run("UPDATE call_participants SET state = 'joined', joined_at = COALESCE(joined_at, CURRENT_TIMESTAMP(3)), left_at = NULL WHERE call_id = ? AND user_id = ?", [id2, me.userId]);
       await tx.run("UPDATE calls SET state = 'active', answered_at = COALESCE(answered_at, CURRENT_TIMESTAMP(3)) WHERE id = ? AND state = 'ringing'", [id2]);
       await emit(tx, ctx2, "call.updated", id2, (await participants(tx, id2)).map((p) => p.user_id), { callId: id2, change: "joined", userId: me.userId });
@@ -1214,6 +1257,7 @@ function registerCallRoutes(app, ctx2) {
     if (!call || !OPEN.includes(call.state) || !call.conversation_id) fail("not_found", "This call has ended.");
     const conversation = await ctx2.services.conversation(call.conversation_id);
     if (!conversation.memberIds.includes(me.userId)) fail("not_found", "Call not found.");
+    if (!await db2.one("SELECT 1 FROM call_keys WHERE call_id = ? AND device_id = ?", [id2, me.deviceId])) fail("conflict", "This device cannot join this encrypted call.");
     if (await busy(me.userId, id2)) fail("conflict", "Leave your other call first.");
     await db2.tx(async (tx) => {
       await tx.run(

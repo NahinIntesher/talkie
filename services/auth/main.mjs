@@ -49,6 +49,7 @@ var baseEnvSchema = z.object({
    */
   DB_SHARED_NAME: z.string().regex(/^[A-Za-z0-9_]*$/).default(""),
   DB_POOL_SIZE: z.coerce.number().int().positive().default(10),
+  AUTH_URL: z.url().default("http://127.0.0.1:4101"),
   DB_SSL: bool.default(false),
   REDIS_URL: z.string().optional(),
   /**
@@ -701,10 +702,22 @@ function readPublicKey(env2) {
   if (env2.JWT_PUBLIC_KEY_FILE) return readFileSync2(configPath(env2.JWT_PUBLIC_KEY_FILE), "utf8");
   throw new Error("JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_FILE is required");
 }
-async function createVerifier(env2, publicKeyPem = readPublicKey(env2)) {
+var remoteSessionCheck = (env2) => async (auth) => {
+  try {
+    const result = await internalFetch(env2, `${env2.AUTH_URL}/internal/sessions/check`, {
+      method: "POST",
+      body: { userId: auth.userId, deviceId: auth.deviceId, sessionId: auth.sessionId }
+    });
+    return result.active === true;
+  } catch {
+    throw new AppError("unavailable", "Could not check your session. Try again.");
+  }
+};
+async function createVerifier(env2, publicKeyPem = readPublicKey(env2), check = remoteSessionCheck(env2)) {
   const key2 = await importSPKI(publicKeyPem, ACCESS_TOKEN_ALG);
   return {
     async verify(token) {
+      let auth;
       try {
         const { payload } = await jwtVerify(token, key2, {
           algorithms: [ACCESS_TOKEN_ALG],
@@ -713,10 +726,12 @@ async function createVerifier(env2, publicKeyPem = readPublicKey(env2)) {
           clockTolerance: 5
         });
         if (!payload.sub || !payload.did || !payload.sid) throw new Error("incomplete token");
-        return { userId: payload.sub, deviceId: payload.did, sessionId: payload.sid, role: payload.role ?? "user" };
+        auth = { userId: payload.sub, deviceId: payload.did, sessionId: payload.sid, role: payload.role ?? "user" };
       } catch {
         throw new AppError("unauthorized", "Your session has expired. Please sign in again.");
       }
+      if (!await check(auth)) throw new AppError("session_revoked", "This device has been signed out.");
+      return auth;
     }
   };
 }
@@ -725,9 +740,10 @@ var bearer = (request) => {
   if (typeof header === "string" && header.startsWith("Bearer ")) return header.slice(7).trim() || null;
   return null;
 };
-function installAuth(app, verifier, env2) {
+function installAuth(app, verifier, env2, publicRoutes = /* @__PURE__ */ new Set()) {
   app.decorateRequest("auth", void 0);
   app.addHook("onRequest", async (request) => {
+    if (publicRoutes.has(request.url.split("?")[0])) return;
     const token = bearer(request);
     if (token) request.auth = await verifier.verify(token);
   });
@@ -752,6 +768,19 @@ var caller = (request) => {
   if (!request.auth) throw new AppError("unauthorized", "Please sign in.");
   return request.auth;
 };
+async function internalFetch(env2, url, init = {}) {
+  const response = await fetch(url, {
+    method: init.method ?? "GET",
+    headers: {
+      "x-internal-token": env2.INTERNAL_TOKEN,
+      ...init.body === void 0 ? {} : { "content-type": "application/json" }
+    },
+    body: init.body === void 0 ? void 0 : JSON.stringify(init.body),
+    signal: AbortSignal.timeout(5e3)
+  });
+  if (!response.ok) throw new AppError("unavailable", `Internal call failed (${response.status})`);
+  return await response.json();
+}
 
 // services/auth/src/config.ts
 import { readFileSync as readFileSync3 } from "node:fs";
@@ -806,7 +835,7 @@ var USERNAME_MAX = 32;
 var DISPLAY_NAME_MAX = 64;
 var ABOUT_MAX = 140;
 var OTP_LENGTH = 6;
-var MAX_LINKED_DEVICES = 5;
+var MAX_LINKED_DEVICES = 3;
 var id = z3.string().regex(/^[1-9]\d{0,19}$/, "Invalid id");
 var email = z3.string().trim().toLowerCase().max(254).pipe(z3.email("Enter a valid email address"));
 var username = z3.string().trim().toLowerCase().min(USERNAME_MIN, `At least ${USERNAME_MIN} characters`).max(USERNAME_MAX, `At most ${USERNAME_MAX} characters`).regex(/^[a-z0-9._]+$/, "Use only letters, numbers, dot and underscore").refine((value) => !value.startsWith(".") && !value.endsWith(".") && !value.includes(".."), "Dots cannot be at the start, end or next to each other").refine((value) => /[a-z]/.test(value), "Include at least one letter");
@@ -822,8 +851,12 @@ var device = z3.object({
   /** Device identity key for end-to-end encryption, generated on the device. */
   identityKey: publicKey.optional()
 });
-var otpRequest = z3.object({ email, locale: locale.default("bn") });
-var otpVerify = z3.object({ challengeId: id, code: otpCode, device });
+var otpRequestKey = z3.string().regex(/^[A-Za-z0-9_-]{22}$/);
+var otpRequest = z3.object({ email, locale: locale.default("bn"), requestKey: otpRequestKey.optional() });
+var otpVerify = z3.union([
+  z3.object({ challengeId: id, code: otpCode, device }),
+  z3.object({ requestKey: otpRequestKey, code: otpCode, device })
+]);
 var signupComplete = z3.object({ signupToken: z3.string().min(20).max(512), username, displayName, device });
 var usernameCheck = z3.object({ username });
 var privacyAudience = z3.enum(["everyone", "contacts", "nobody"]);
@@ -845,7 +878,7 @@ var DELETE_FOR_EVERYONE_WINDOW_MS = 48 * 36e5;
 var b64 = (maxChars) => z3.string().regex(/^[A-Za-z0-9_-]*$/, "Invalid encoding").max(maxChars);
 var messageKind = z3.enum(["text", "image", "video", "audio", "voice", "document", "sticker", "location", "contact", "poll"]);
 var clientMessageId = z3.string().regex(/^[0-9A-Za-z]{26}$/, "Invalid client message id");
-var sealedKeys = z3.array(z3.object({ deviceId: id, sealedKey: b64(200) })).min(1).max(GROUP_MAX_MEMBERS * MAX_LINKED_DEVICES);
+var sealedKeys = z3.array(z3.object({ deviceId: id, sealedKey: b64(200) })).min(1).max(GROUP_MAX_MEMBERS * 5);
 var sendMessage = z3.object({
   clientMessageId,
   kind: messageKind,
@@ -949,10 +982,10 @@ var breakoutPlan = z3.object({
 
 // services/auth/src/clients.ts
 var headers = { "x-internal-token": env.INTERNAL_TOKEN, "content-type": "application/json" };
-async function call(url, init) {
+async function call(url, init, timeout = 5e3) {
   let response;
   try {
-    response = await fetch(url, { ...init, headers, signal: AbortSignal.timeout(5e3) });
+    response = await fetch(url, { ...init, headers, signal: AbortSignal.timeout(timeout) });
   } catch {
     throw new AppError("unavailable", "Talkie is busy right now. Please try again in a moment.");
   }
@@ -969,16 +1002,21 @@ var usersClient = {
 };
 async function sendOtpEmail(log, to, code, locale2) {
   try {
-    await call(`${env.NOTIFY_URL}/internal/email/otp`, { method: "POST", body: JSON.stringify({ to, code, locale: locale2 }) });
+    await call(`${env.NOTIFY_URL}/internal/email/otp`, { method: "POST", body: JSON.stringify({ to, code, locale: locale2 }) }, 18e3);
   } catch (error) {
     if (env.NODE_ENV !== "production" && env.DEV_LOG_OTP) {
       log.warn({ to }, `email not delivered; development sign-in code for ${to}: ${code}`);
-      return;
+      return "sent";
     }
-    throw error;
+    log.warn({ err: error }, "could not confirm OTP delivery");
+    return "uncertain";
   }
   if (env.NODE_ENV !== "production" && env.DEV_LOG_OTP) log.info(`development sign-in code for ${to}: ${code}`);
+  return "sent";
 }
+
+// services/auth/src/sessions.ts
+import { createHmac as createHmac2 } from "node:crypto";
 
 // services/auth/src/tokens.ts
 import { importPKCS8, SignJWT } from "jose";
@@ -995,22 +1033,40 @@ async function signAccessToken(context) {
 
 // services/auth/src/sessions.ts
 var refreshExpiry = () => new Date(Date.now() + env.REFRESH_TOKEN_DAYS * 864e5);
-async function issueRefresh(tx, sessionId) {
-  const token = randomToken(32);
+async function sessionIsActive(db2, auth) {
+  return !!await db2.one(
+    `SELECT 1 FROM sessions s JOIN devices d ON d.id = s.device_id JOIN accounts a ON a.id = d.account_id
+     WHERE s.id = ? AND d.id = ? AND a.id = ? AND a.status = 'active'
+       AND s.revoked_at IS NULL AND d.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > CURRENT_TIMESTAMP(3))`,
+    [auth.sessionId, auth.deviceId, auth.userId]
+  );
+}
+async function issueRefresh(tx, sessionId, token = randomToken(32)) {
   await tx.run("INSERT INTO refresh_tokens (token_hash, session_id) VALUES (?, ?)", [sha256(token), sessionId]);
   return token;
 }
+async function trimDevices(tx, ids2, accountId, keep) {
+  const active = await tx.query(
+    "SELECT id FROM devices WHERE account_id = ? AND revoked_at IS NULL ORDER BY created_at, id FOR UPDATE",
+    [accountId]
+  );
+  const overflow = active.slice(0, Math.max(0, active.length - keep));
+  for (const old of overflow) await revokeDevice(tx, ids2, accountId, old.id, "device_removed");
+  return overflow[0]?.id ?? null;
+}
+async function enforceDeviceLimit(db2, ids2) {
+  const accounts = await db2.query("SELECT account_id FROM devices WHERE revoked_at IS NULL GROUP BY account_id HAVING COUNT(*) > ?", [MAX_LINKED_DEVICES]);
+  for (const { account_id } of accounts) {
+    await db2.tx(async (tx) => {
+      if (await tx.one("SELECT id FROM accounts WHERE id = ? FOR UPDATE", [account_id])) await trimDevices(tx, ids2, account_id, MAX_LINKED_DEVICES);
+    });
+  }
+}
 async function openSession(db2, ids2, account, device2, client) {
   const result = await db2.tx(async (tx) => {
-    const active = await tx.query(
-      "SELECT id FROM devices WHERE account_id = ? AND revoked_at IS NULL ORDER BY last_active_at ASC FOR UPDATE",
-      [account.id]
-    );
-    let revokedDeviceId = null;
-    if (active.length >= MAX_LINKED_DEVICES) {
-      revokedDeviceId = active[0].id;
-      await revokeDevice(tx, ids2, account.id, revokedDeviceId, "device_removed");
-    }
+    const fresh = await tx.one("SELECT id, email, status, role FROM accounts WHERE id = ? FOR UPDATE", [account.id]);
+    if (fresh?.status !== "active") throw new AppError("forbidden", "This account cannot sign in.");
+    const revokedDeviceId = await trimDevices(tx, ids2, account.id, MAX_LINKED_DEVICES - 1);
     const deviceId = ids2.next();
     const sessionId = ids2.next();
     await tx.run("INSERT INTO devices (id, account_id, name, platform, identity_key) VALUES (?, ?, ?, ?, ?)", [
@@ -1022,7 +1078,7 @@ async function openSession(db2, ids2, account, device2, client) {
     ]);
     await tx.run(
       "INSERT INTO sessions (id, device_id, expires_at, user_agent, ip) VALUES (?, ?, ?, ?, ?)",
-      [sessionId, deviceId, refreshExpiry(), client.userAgent?.slice(0, 255) ?? null, ipToBuffer(client.ip)]
+      [sessionId, deviceId, device2.platform === "android" || device2.platform === "ios" ? null : refreshExpiry(), client.userAgent?.slice(0, 255) ?? null, ipToBuffer(client.ip)]
     );
     await tx.run("UPDATE accounts SET last_login_at = CURRENT_TIMESTAMP(3) WHERE id = ?", [account.id]);
     const refreshToken = await issueRefresh(tx, sessionId);
@@ -1032,13 +1088,13 @@ async function openSession(db2, ids2, account, device2, client) {
       key: account.id,
       payload: { userId: account.id, deviceId, platform: device2.platform, name: device2.name }
     });
-    return { deviceId, sessionId, refreshToken, revokedDeviceId };
+    return { deviceId, sessionId, refreshToken, revokedDeviceId, role: fresh.role };
   });
   const access = await signAccessToken({
     userId: account.id,
     deviceId: result.deviceId,
     sessionId: result.sessionId,
-    role: account.role
+    role: result.role
   });
   return {
     deviceId: result.deviceId,
@@ -1056,19 +1112,19 @@ async function revokeDevice(tx, ids2, accountId, deviceId, reason) {
     "UPDATE devices SET revoked_at = CURRENT_TIMESTAMP(3) WHERE id = ? AND account_id = ? AND revoked_at IS NULL",
     [deviceId, accountId]
   );
+  if (updated.affectedRows === 0) return false;
   await tx.run(
     "UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP(3), revoke_reason = ? WHERE device_id = ? AND revoked_at IS NULL",
     [reason, deviceId]
   );
-  if (updated.affectedRows > 0)
-    await writeOutbox(tx, { id: ids2.next(), type: "device.revoked", key: accountId, payload: { userId: accountId, deviceId, reason } });
-  return updated.affectedRows > 0;
+  await writeOutbox(tx, { id: ids2.next(), type: "device.revoked", key: accountId, payload: { userId: accountId, deviceId, reason } });
+  return true;
 }
-async function rotate(db2, ids2, refreshToken) {
+async function rotate(db2, ids2, refreshToken, attempt) {
   const hash = sha256(refreshToken);
   const outcome = await db2.tx(async (tx) => {
     const row = await tx.one(
-      `SELECT r.session_id, r.used_at, d.account_id, s.device_id, s.expires_at, s.revoked_at, a.status, a.role
+      `SELECT r.session_id, r.used_at, r.rotation_attempt, d.account_id, s.device_id, s.expires_at, s.revoked_at, a.status, a.role
        FROM refresh_tokens r
        JOIN sessions s ON s.id = r.session_id
        JOIN devices d ON d.id = s.device_id
@@ -1078,17 +1134,23 @@ async function rotate(db2, ids2, refreshToken) {
     );
     if (!row) return { kind: "invalid" };
     if (row.revoked_at) return { kind: "revoked" };
+    if (row.expires_at && row.expires_at.getTime() < Date.now()) return { kind: "expired" };
+    if (row.status !== "active") return { kind: "suspended" };
+    const retry = row.expires_at === null ? attempt : void 0;
+    const attemptHash = retry ? sha256(retry) : null;
+    const next = retry ? createHmac2("sha256", env.OTP_PEPPER).update(`native-refresh:${refreshToken}:${retry}`).digest("base64url") : void 0;
     if (row.used_at) {
+      if (next && attemptHash && row.rotation_attempt?.equals(attemptHash)) {
+        const successor = await tx.one("SELECT 1 FROM refresh_tokens WHERE token_hash = ? AND session_id = ? AND used_at IS NULL", [sha256(next), row.session_id]);
+        return successor ? { kind: "ok", row, next } : { kind: "invalid" };
+      }
       await revokeDevice(tx, ids2, row.account_id, row.device_id, "token_reuse");
       return { kind: "reused" };
     }
-    if (row.expires_at.getTime() < Date.now()) return { kind: "expired" };
-    if (row.status !== "active") return { kind: "suspended" };
-    await tx.run("UPDATE refresh_tokens SET used_at = CURRENT_TIMESTAMP(3) WHERE token_hash = ?", [hash]);
-    await tx.run("UPDATE sessions SET expires_at = ? WHERE id = ?", [refreshExpiry(), row.session_id]);
+    await tx.run("UPDATE refresh_tokens SET used_at = CURRENT_TIMESTAMP(3), rotation_attempt = ? WHERE token_hash = ?", [attemptHash, hash]);
+    if (row.expires_at) await tx.run("UPDATE sessions SET expires_at = ? WHERE id = ?", [refreshExpiry(), row.session_id]);
     await tx.run("UPDATE devices SET last_active_at = CURRENT_TIMESTAMP(3) WHERE id = ?", [row.device_id]);
-    const next = await issueRefresh(tx, row.session_id);
-    return { kind: "ok", row, next };
+    return { kind: "ok", row, next: await issueRefresh(tx, row.session_id, next) };
   });
   if (outcome.kind === "reused") throw new AppError("session_revoked", "This session was signed out for your safety. Please sign in again.");
   if (outcome.kind === "suspended") throw new AppError("forbidden", "This account is suspended.");
@@ -1170,34 +1232,36 @@ function registerRoutes(app, db2, ids2, guards2) {
     const challengeId = ids2.next();
     const code = env.DEV_FIXED_OTP ?? randomDigits(OTP_LENGTH);
     const expiresAt = new Date(Date.now() + OTP.ttlMinutes * 6e4);
-    await db2.run("INSERT INTO otp_challenges (id, email, code_hash, expires_at, request_ip) VALUES (?, ?, ?, ?, ?)", [
+    await db2.run("INSERT INTO otp_challenges (id, email, code_hash, expires_at, request_ip, request_key_hash) VALUES (?, ?, ?, ?, ?, ?)", [
       challengeId,
       input.email,
       codeHash(challengeId, code),
       expiresAt,
-      ip
+      ip,
+      input.requestKey ? sha256(input.requestKey) : null
     ]);
-    await sendOtpEmail(request.log, input.email, code, input.locale);
-    const body = { challengeId, expiresAt: expiresAt.toISOString(), resendAfterSeconds: OTP.resendAfterSeconds };
+    const delivery = await sendOtpEmail(request.log, input.email, code, input.locale);
+    const body = { challengeId, expiresAt: expiresAt.toISOString(), resendAfterSeconds: OTP.resendAfterSeconds, delivery };
     return body;
   });
   app.post("/auth/otp/verify", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
     const input = otpVerify.parse(request.body);
     const check = await db2.tx(async (tx) => {
+      const byId = "challengeId" in input;
       const challenge = await tx.one(
-        "SELECT email, code_hash, attempts, expires_at, verified_at, consumed_at FROM otp_challenges WHERE id = ? FOR UPDATE",
-        [input.challengeId]
+        `SELECT id, email, code_hash, attempts, expires_at, verified_at, consumed_at FROM otp_challenges WHERE ${byId ? "id" : "request_key_hash"} = ? FOR UPDATE`,
+        [byId ? input.challengeId : sha256(input.requestKey)]
       );
       if (!challenge || challenge.consumed_at || challenge.verified_at) return { kind: "invalid" };
       if (challenge.expires_at.getTime() < Date.now()) return { kind: "expired" };
       if (challenge.attempts >= OTP.maxAttempts) return { kind: "attempts" };
-      if (!safeEqual(codeHash(input.challengeId, input.code), challenge.code_hash)) {
-        await tx.run("UPDATE otp_challenges SET attempts = attempts + 1 WHERE id = ?", [input.challengeId]);
+      if (!safeEqual(codeHash(challenge.id, input.code), challenge.code_hash)) {
+        await tx.run("UPDATE otp_challenges SET attempts = attempts + 1 WHERE id = ?", [challenge.id]);
         return { kind: "wrong", left: OTP.maxAttempts - challenge.attempts - 1 };
       }
       const account = await tx.one("SELECT id, email, status, role FROM accounts WHERE email = ?", [challenge.email]);
       if (account?.status === "active") {
-        await tx.run("UPDATE otp_challenges SET verified_at = CURRENT_TIMESTAMP(3), consumed_at = CURRENT_TIMESTAMP(3) WHERE id = ?", [input.challengeId]);
+        await tx.run("UPDATE otp_challenges SET verified_at = CURRENT_TIMESTAMP(3), consumed_at = CURRENT_TIMESTAMP(3) WHERE id = ?", [challenge.id]);
         if (ownerEmails.has(account.email) && account.role !== "owner") {
           await tx.run("UPDATE accounts SET role = 'owner' WHERE id = ?", [account.id]);
           account.role = "owner";
@@ -1208,7 +1272,7 @@ function registerRoutes(app, db2, ids2, guards2) {
       const signupToken = randomToken(32);
       await tx.run("UPDATE otp_challenges SET verified_at = CURRENT_TIMESTAMP(3), signup_token_hash = ? WHERE id = ?", [
         sha256(signupToken),
-        input.challengeId
+        challenge.id
       ]);
       return { kind: "signup", signupToken, email: challenge.email };
     });
@@ -1285,14 +1349,14 @@ function registerRoutes(app, db2, ids2, guards2) {
     return body;
   });
   app.post("/auth/refresh", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
-    const fromBody = z4.object({ refreshToken: z4.string().min(20).max(256) }).safeParse(request.body ?? {});
+    const fromBody = z4.object({ refreshToken: z4.string().min(20).max(256), attempt: z4.string().regex(/^[a-f0-9]{32}$/).optional() }).safeParse(request.body ?? {});
     const token = isWeb(request) ? request.cookies[REFRESH_COOKIE] : fromBody.success ? fromBody.data.refreshToken : void 0;
     if (!token) fail("unauthorized", "Please sign in.");
     try {
-      const result = await rotate(db2, ids2, token);
+      const result = await rotate(db2, ids2, token, fromBody.success ? fromBody.data.attempt : void 0);
       return { tokens: deliverTokens(request, reply, result.tokens), deviceId: result.deviceId };
     } catch (error) {
-      if (isWeb(request)) reply.clearCookie(REFRESH_COOKIE, { path: cookiePath });
+      if (isWeb(request) && error instanceof AppError && ["unauthorized", "session_revoked", "forbidden"].includes(error.code)) reply.clearCookie(REFRESH_COOKIE, { path: cookiePath });
       throw error;
     }
   });
@@ -1340,6 +1404,10 @@ function registerRoutes(app, db2, ids2, guards2) {
       deviceIds
     );
     return { devices: rows.map((row) => ({ deviceId: row.id, userId: row.account_id, identityKey: row.identity_key })) };
+  });
+  app.post("/internal/sessions/check", { preHandler: guards2.requireInternal, config: { rateLimit: false } }, async (request) => {
+    const auth = z4.object({ userId: id, deviceId: id, sessionId: id }).parse(request.body);
+    return { active: await sessionIsActive(db2, auth) };
   });
   app.post("/internal/device-keys", { preHandler: guards2.requireInternal }, async (request) => {
     const { userIds } = z4.object({ userIds: z4.array(id).min(1).max(1024) }).parse(request.body);
@@ -1506,8 +1574,14 @@ function registerAdminRoutes(app, db2, ids2, guards2) {
 var db = connectDatabase(env, env.DB_NAME);
 var service = await createService({ name: "auth", env, ready: () => db.ping(), rateLimitPerMinute: 120 });
 var ids = new Snowflake(env.WORKER_ID);
+await enforceDeviceLimit(db, ids);
 await service.app.register(cookie);
-var guards = installAuth(service.app, await createVerifier(env), env);
+var guards = installAuth(
+  service.app,
+  await createVerifier(env, void 0, (auth) => sessionIsActive(db, auth)),
+  env,
+  /* @__PURE__ */ new Set(["/auth/refresh", "/auth/otp/request", "/auth/otp/verify", "/auth/signup"])
+);
 registerRoutes(service.app, db, ids, guards);
 registerAdminRoutes(service.app, db, ids, guards);
 var bus = createBus(env, service.log, "auth");

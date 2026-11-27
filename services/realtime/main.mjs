@@ -52,6 +52,7 @@ var baseEnvSchema = z.object({
    */
   DB_SHARED_NAME: z.string().regex(/^[A-Za-z0-9_]*$/).default(""),
   DB_POOL_SIZE: z.coerce.number().int().positive().default(10),
+  AUTH_URL: z.url().default("http://127.0.0.1:4101"),
   DB_SSL: bool.default(false),
   REDIS_URL: z.string().optional(),
   /**
@@ -588,10 +589,22 @@ function readPublicKey(env2) {
   if (env2.JWT_PUBLIC_KEY_FILE) return readFileSync2(configPath(env2.JWT_PUBLIC_KEY_FILE), "utf8");
   throw new Error("JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_FILE is required");
 }
-async function createVerifier(env2, publicKeyPem = readPublicKey(env2)) {
+var remoteSessionCheck = (env2) => async (auth) => {
+  try {
+    const result = await internalFetch(env2, `${env2.AUTH_URL}/internal/sessions/check`, {
+      method: "POST",
+      body: { userId: auth.userId, deviceId: auth.deviceId, sessionId: auth.sessionId }
+    });
+    return result.active === true;
+  } catch {
+    throw new AppError("unavailable", "Could not check your session. Try again.");
+  }
+};
+async function createVerifier(env2, publicKeyPem = readPublicKey(env2), check = remoteSessionCheck(env2)) {
   const key = await importSPKI(publicKeyPem, ACCESS_TOKEN_ALG);
   return {
     async verify(token) {
+      let auth;
       try {
         const { payload } = await jwtVerify(token, key, {
           algorithms: [ACCESS_TOKEN_ALG],
@@ -600,12 +613,27 @@ async function createVerifier(env2, publicKeyPem = readPublicKey(env2)) {
           clockTolerance: 5
         });
         if (!payload.sub || !payload.did || !payload.sid) throw new Error("incomplete token");
-        return { userId: payload.sub, deviceId: payload.did, sessionId: payload.sid, role: payload.role ?? "user" };
+        auth = { userId: payload.sub, deviceId: payload.did, sessionId: payload.sid, role: payload.role ?? "user" };
       } catch {
         throw new AppError("unauthorized", "Your session has expired. Please sign in again.");
       }
+      if (!await check(auth)) throw new AppError("session_revoked", "This device has been signed out.");
+      return auth;
     }
   };
+}
+async function internalFetch(env2, url, init = {}) {
+  const response = await fetch(url, {
+    method: init.method ?? "GET",
+    headers: {
+      "x-internal-token": env2.INTERNAL_TOKEN,
+      ...init.body === void 0 ? {} : { "content-type": "application/json" }
+    },
+    body: init.body === void 0 ? void 0 : JSON.stringify(init.body),
+    signal: AbortSignal.timeout(5e3)
+  });
+  if (!response.ok) throw new AppError("unavailable", `Internal call failed (${response.status})`);
+  return await response.json();
 }
 
 // services/realtime/src/main.ts
@@ -746,7 +774,7 @@ var toUsers = (userIds, event, payload) => {
   if (!Array.isArray(userIds)) return;
   for (const id of userIds) io.to(userRoom(String(id))).emit(event, payload);
 };
-bus.subscribe("realtime", ["message.sent", "message.updated", "conversation.updated", "receipt.updated", "status.updated", "device.revoked", "call.ringing", "call.updated", "call.ended", "meeting.updated", "meeting.admission"], async (event) => {
+bus.subscribe("realtime", ["message.sent", "message.updated", "conversation.updated", "receipt.updated", "history.synced", "status.updated", "device.revoked", "call.ringing", "call.updated", "call.ended", "meeting.updated", "meeting.admission"], async (event) => {
   const payload = event.payload;
   const { recipients, ...rest } = payload;
   switch (event.type) {
@@ -756,6 +784,9 @@ bus.subscribe("realtime", ["message.sent", "message.updated", "conversation.upda
       return toUsers(recipients, "chat:message-updated", rest);
     case "receipt.updated":
       return toUsers(recipients, "chat:receipt", rest);
+    case "history.synced":
+      io.to(deviceRoom(String(payload.deviceId))).emit("chat:history-synced", { deviceId: payload.deviceId });
+      return;
     case "status.updated":
       return toUsers(recipients, "status:update", rest);
     case "call.ringing":
