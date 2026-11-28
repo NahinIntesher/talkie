@@ -35,15 +35,20 @@ const wrap = (target: Pool | PoolConnection, rewrite: (sql: string) => string): 
   },
 });
 
-export function connectDatabase(env: BaseEnv, database: string): Database {
-  // Single-database hosting: a few shared table names are renamed per service (see sharedTableNames).
-  const rewrite = tableRewriter(sharedTableNames(env, database));
+// cPanel bundles each service independently, so the registry lives on the shared Node process.
+const poolRegistryKey = Symbol.for('talkie.database.pools');
+const processGlobals = globalThis as typeof globalThis & {
+  [poolRegistryKey]?: Map<string, { pool: Pool; references: number }>;
+};
+const pools = processGlobals[poolRegistryKey] ??= new Map();
+
+function createPool(env: BaseEnv, name: string): Pool {
   const pool = mysql.createPool({
     host: env.DB_HOST,
     port: env.DB_PORT,
     user: env.DB_USER,
     password: env.DB_PASSWORD,
-    database: databaseName(env, database),
+    database: name,
     connectionLimit: env.DB_POOL_SIZE,
     waitForConnections: true,
     queueLimit: 0,
@@ -62,6 +67,22 @@ export function connectDatabase(env: BaseEnv, database: string): Database {
     'connection',
     (connection) => connection.query("SET time_zone = '+00:00'"),
   );
+  return pool;
+}
+
+export function connectDatabase(env: BaseEnv, database: string): Database {
+  // Each service keeps its own SQL table mapping even when it shares the connection pool.
+  const rewrite = tableRewriter(sharedTableNames(env, database));
+  const name = databaseName(env, database);
+  const key = env.DB_POOL_SHARED && env.DB_SHARED_NAME && name === env.DB_SHARED_NAME
+    ? JSON.stringify([env.DB_HOST, env.DB_PORT, env.DB_USER, env.DB_PASSWORD, name, env.DB_SSL, env.DB_POOL_SIZE])
+    : undefined;
+  const shared = key === undefined ? undefined : pools.get(key);
+  const entry = shared ?? { pool: createPool(env, name), references: 0 };
+  if (key !== undefined && !shared) pools.set(key, entry);
+  entry.references++;
+  const { pool } = entry;
+  let closed = false;
   const executor = wrap(pool, rewrite);
   return {
     ...executor,
@@ -89,6 +110,10 @@ export function connectDatabase(env: BaseEnv, database: string): Database {
       await pool.query('SELECT 1');
     },
     async close() {
+      if (closed) return;
+      closed = true;
+      if (--entry.references > 0) return;
+      if (key !== undefined) pools.delete(key);
       await pool.end();
     },
   };

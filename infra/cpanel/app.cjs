@@ -71,8 +71,9 @@ const shared = {
   TRUST_PROXY: 'true',
   BUS_DRIVER: process.env.REDIS_URL ? (process.env.BUS_DRIVER || 'redis') : 'process',
   OUTBOX_POLL_MS: process.env.OUTBOX_POLL_MS || '1000',
-  // Each service has its own pool, but shared hosting counts connections per database user.
-  DB_POOL_SIZE: process.env.DB_POOL_SIZE || '2',
+  // Services in the same process and database share the hosting account's connection budget.
+  DB_POOL_SHARED: process.env.DB_SHARED_NAME ? 'true' : 'false',
+  DB_POOL_SIZE: process.env.DB_POOL_SIZE || (process.env.DB_SHARED_NAME ? '4' : '2'),
   JWT_PRIVATE_KEY_FILE: process.env.JWT_PRIVATE_KEY_FILE || path.join(ROOT, 'secrets', 'jwt-private.pem'),
   JWT_PUBLIC_KEY_FILE: process.env.JWT_PUBLIC_KEY_FILE || path.join(ROOT, 'secrets', 'jwt-public.pem'),
   STORAGE_DIR: process.env.STORAGE_DIR || path.join(ROOT, 'data', 'media'),

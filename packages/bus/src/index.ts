@@ -198,7 +198,7 @@ export function createBus(env: BaseEnv, log: Logger, consumerName: string): Bus 
     return redisBus(env.REDIS_URL, log, `${consumerName}-${process.pid}`);
   }
   if (env.BUS_DRIVER === 'memory') return memoryBus();
-  return mysqlBus(connectDatabase({ ...env, DB_POOL_SIZE: 2 }, 'talkie_bus'), log);
+  return mysqlBus(connectDatabase(env.DB_POOL_SHARED ? env : { ...env, DB_POOL_SIZE: 2 }, 'talkie_bus'), log);
 }
 
 export { startOutboxRelay, type OutboxRelay } from './relay.ts';
