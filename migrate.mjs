@@ -47,6 +47,7 @@ var baseEnvSchema = z.object({
    */
   DB_SHARED_NAME: z.string().regex(/^[A-Za-z0-9_]*$/).default(""),
   DB_POOL_SIZE: z.coerce.number().int().positive().default(10),
+  DB_POOL_SHARED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   AUTH_URL: z.url().default("http://127.0.0.1:4101"),
   DB_SSL: bool.default(false),
   REDIS_URL: z.string().optional(),
@@ -183,6 +184,11 @@ async function migrate(env, defaultName, folder, log = console.log) {
     await admin.end();
   }
 }
+
+// packages/db/src/index.ts
+var poolRegistryKey = /* @__PURE__ */ Symbol.for("talkie.database.pools");
+var processGlobals = globalThis;
+var pools = processGlobals[poolRegistryKey] ??= /* @__PURE__ */ new Map();
 
 // scripts/cpanel-migrate.ts
 var SERVICES = ["bus", "auth", "users", "chat", "media", "meet", "notify", "admin"];

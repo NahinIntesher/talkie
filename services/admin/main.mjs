@@ -49,6 +49,7 @@ var baseEnvSchema = z.object({
    */
   DB_SHARED_NAME: z.string().regex(/^[A-Za-z0-9_]*$/).default(""),
   DB_POOL_SIZE: z.coerce.number().int().positive().default(10),
+  DB_POOL_SHARED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   AUTH_URL: z.url().default("http://127.0.0.1:4101"),
   DB_SSL: bool.default(false),
   REDIS_URL: z.string().optional(),
@@ -376,14 +377,16 @@ var wrap = (target, rewrite) => ({
     return result;
   }
 });
-function connectDatabase(env2, database) {
-  const rewrite = tableRewriter(sharedTableNames(env2, database));
+var poolRegistryKey = /* @__PURE__ */ Symbol.for("talkie.database.pools");
+var processGlobals = globalThis;
+var pools = processGlobals[poolRegistryKey] ??= /* @__PURE__ */ new Map();
+function createPool(env2, name) {
   const pool = mysql2.createPool({
     host: env2.DB_HOST,
     port: env2.DB_PORT,
     user: env2.DB_USER,
     password: env2.DB_PASSWORD,
-    database: databaseName(env2, database),
+    database: name,
     connectionLimit: env2.DB_POOL_SIZE,
     waitForConnections: true,
     queueLimit: 0,
@@ -401,6 +404,18 @@ function connectDatabase(env2, database) {
     "connection",
     (connection) => connection.query("SET time_zone = '+00:00'")
   );
+  return pool;
+}
+function connectDatabase(env2, database) {
+  const rewrite = tableRewriter(sharedTableNames(env2, database));
+  const name = databaseName(env2, database);
+  const key = env2.DB_POOL_SHARED && env2.DB_SHARED_NAME && name === env2.DB_SHARED_NAME ? JSON.stringify([env2.DB_HOST, env2.DB_PORT, env2.DB_USER, env2.DB_PASSWORD, name, env2.DB_SSL, env2.DB_POOL_SIZE]) : void 0;
+  const shared = key === void 0 ? void 0 : pools.get(key);
+  const entry = shared ?? { pool: createPool(env2, name), references: 0 };
+  if (key !== void 0 && !shared) pools.set(key, entry);
+  entry.references++;
+  const { pool } = entry;
+  let closed = false;
   const executor = wrap(pool, rewrite);
   return {
     ...executor,
@@ -429,6 +444,10 @@ function connectDatabase(env2, database) {
       await pool.query("SELECT 1");
     },
     async close() {
+      if (closed) return;
+      closed = true;
+      if (--entry.references > 0) return;
+      if (key !== void 0) pools.delete(key);
       await pool.end();
     }
   };
@@ -603,7 +622,7 @@ function createBus(env2, log, consumerName) {
     return redisBus(env2.REDIS_URL, log, `${consumerName}-${process.pid}`);
   }
   if (env2.BUS_DRIVER === "memory") return memoryBus();
-  return mysqlBus(connectDatabase({ ...env2, DB_POOL_SIZE: 2 }, "talkie_bus"), log);
+  return mysqlBus(connectDatabase(env2.DB_POOL_SHARED ? env2 : { ...env2, DB_POOL_SIZE: 2 }, "talkie_bus"), log);
 }
 
 // packages/auth-kit/src/index.ts
