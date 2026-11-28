@@ -300,6 +300,22 @@ export function registerRoutes(
 
   // ───────── Internal ─────────
 
+  app.post('/internal/notification-avatar', { preHandler: guards.requireInternal }, async (request) => {
+    const { senderId, recipients } = z.object({ senderId: contract.id, recipients: z.array(contract.id).min(1).max(500) }).parse(request.body);
+    const sender = await activeProfile(senderId);
+    if (!sender.avatar_media_id) return { avatarUrl: null, recipients: [] };
+    const privacy = await privacyOf(senderId);
+    const allowed = await db.query<{ user_id: string }>(
+      `SELECT p.user_id FROM profiles p
+       WHERE p.user_id IN (${recipients.map(() => '?').join(',')})
+       AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker_id = ? AND blocked_id = p.user_id)
+       AND (? = 'everyone' OR (? = 'contacts' AND EXISTS
+           (SELECT 1 FROM contacts WHERE owner_id = ? AND contact_id = p.user_id)))`,
+      [...recipients, senderId, privacy.profile_photo, privacy.profile_photo, senderId],
+    );
+    return { avatarUrl: avatarUrl(sender.avatar_media_id), recipients: allowed.map((row) => row.user_id) };
+  });
+
   /** Creates the profile during sign-up. Repeating the same request is safe. */
   app.post('/internal/profiles', { preHandler: guards.requireInternal }, async (request, reply) => {
     const input = z

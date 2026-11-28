@@ -4,7 +4,7 @@ import { sharedTableNames, tableRewriter } from '../packages/core/src/index.ts';
 import type { PushMessage, SendResult } from '../services/notify/src/fcm.ts';
 
 /** A stand-in database: push tokens, preferences, and a record of deleted tokens. */
-function fakeDb(tokens: Array<{ device_id: string; user_id: string; token: string }>, prefs: Array<Record<string, unknown>> = []) {
+function fakeDb(tokens: Array<{ device_id: string; user_id: string; token: string; phone_ringtone?: number }>, prefs: Array<Record<string, unknown>> = []) {
   const deleted: string[] = [];
   return {
     deleted,
@@ -41,7 +41,11 @@ function setup(tokens: Parameters<typeof fakeDb>[0], prefs?: Parameters<typeof f
     { id: '3', displayName: 'Mim', locale: 'en' as const },
   ];
   const log = { debug() {}, warn() {}, info() {}, error() {} };
-  const push = pushHandlers({ origin: 'https://talkie.test', db: db as never, fcm: fcm as never, log: log as never, profiles: async (ids) => people.filter((p) => ids.includes(p.id)) });
+  const push = pushHandlers({
+    origin: 'https://talkie.test', db: db as never, fcm: fcm as never, log: log as never,
+    profiles: async (ids) => people.filter((p) => ids.includes(p.id)),
+    avatar: async () => ({ avatarUrl: '/api/media/avatars/42', recipients: ['2', '3'] }),
+  });
   return { push, sent, deleted };
 }
 
@@ -50,7 +54,7 @@ const event = (type: string, payload: Record<string, unknown>) => ({ id: '9', ty
 describe('push notifications', () => {
   const tokens = [
     { device_id: 'd1', user_id: '1', token: 't-ayesha' },
-    { device_id: 'd2', user_id: '2', token: 't-rafi-phone' },
+    { device_id: 'd2', user_id: '2', token: 't-rafi-phone', phone_ringtone: 1 },
     { device_id: 'd3', user_id: '2', token: 't-rafi-tablet' },
     { device_id: 'd4', user_id: '3', token: 't-mim' },
   ];
@@ -59,7 +63,7 @@ describe('push notifications', () => {
     const { push, sent } = setup(tokens);
     await push.messageSent(event('message.sent', { recipients: ['1', '2'], conversationId: 'c1', messageId: 'm1', senderId: '1', kind: 'image' }));
     expect(sent.map((s) => s.token).sort()).toEqual(['t-rafi-phone', 't-rafi-tablet']);
-    expect(sent[0]!.message).toMatchObject({ title: 'Ayesha', body: '📷 ছবি', channel: 'messages', tag: 'c1', data: { type: 'message', conversationId: 'c1' } });
+    expect(sent[0]!.message).toMatchObject({ title: 'Ayesha', body: '📷 ছবি', channel: 'messages', tag: 'c1', data: { type: 'message', conversationId: 'c1', avatarUrl: '/api/media/avatars/42', senderName: 'Ayesha' } });
   });
 
   it('skip people who muted the chat and system lines', async () => {
@@ -80,9 +84,12 @@ describe('push notifications', () => {
     await push.messageSent(event('message.sent', { recipients: ['1', '2', '3'], conversationId: 'c', messageId: 'm', senderId: '1', kind: 'voice' }));
     expect(sent.map((s) => s.token)).toEqual(['t-mim']);
     expect(sent[0]!.message).toMatchObject({ title: 'Talkie', body: 'New message' });
+    expect(sent[0]!.message.data).not.toHaveProperty('avatarUrl');
+    expect(sent[0]!.message.data).not.toHaveProperty('senderName');
     await push.callRinging(event('call.ringing', { recipients: ['2', '3'], callId: 'k1', conversationId: 'c', initiatorId: '1', media: 'video' }));
     expect(sent.slice(1).map((s) => s.token).sort()).toEqual(['t-rafi-phone', 't-rafi-tablet']);
-    expect(sent[1]!.message).toMatchObject({ title: 'Ayesha', body: 'ভিডিও কল আসছে', channel: 'calls', urgent: true, ttlSeconds: 45 });
+    expect(sent[1]!.message).toMatchObject({ title: 'Ayesha', body: 'ভিডিও কল আসছে', channel: 'incoming_calls', urgent: true, ttlSeconds: 45 });
+    expect(sent[2]!.message.channel).toBe('calls');
   });
 
   it('forget tokens Firebase no longer knows, and tokens of signed-out devices', async () => {

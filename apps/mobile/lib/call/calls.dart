@@ -22,7 +22,9 @@ class Calls extends ChangeNotifier {
     chat.on('call:ended', (d) => _ended(d['callId'] as String, d['outcome'] as String? ?? 'ended'));
     unawaited(checkIncoming());
     _incomingPoll = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (chat.appVisible && realtime.state.value != Connection.connected) unawaited(checkIncoming());
+      if (incoming != null || (chat.appVisible && realtime.state.value != Connection.connected)) {
+        unawaited(checkIncoming());
+      }
     });
     realtime.state.addListener(_connectionChanged);
   }
@@ -40,7 +42,8 @@ class Calls extends ChangeNotifier {
   bool frontCamera = true;
   String? endReason;
   DateTime? startedAt;
-  Timer? _buzz;
+  static const _ringtone = MethodChannel('talkie/ringtone');
+  Timer? _ringTimeout;
   Timer? _incomingPoll;
   bool _starting = false;
   bool _answering = false;
@@ -100,19 +103,17 @@ class Calls extends ChangeNotifier {
     }
   }
 
-  void _ringBuzz() {
-    _buzz?.cancel();
-    HapticFeedback.heavyImpact();
-    SystemSound.play(SystemSoundType.alert);
-    _buzz = Timer.periodic(const Duration(milliseconds: 1600), (_) {
-      HapticFeedback.heavyImpact();
-      SystemSound.play(SystemSoundType.alert);
-    });
+  void _startRing() {
+    if (!chat.appVisible) return;
+    _ringTimeout?.cancel();
+    unawaited(_ringtone.invokeMethod<void>('start').catchError((_) {}));
+    _ringTimeout = Timer(const Duration(seconds: 45), _stopRing);
   }
 
   void _stopRing() {
-    _buzz?.cancel();
-    _buzz = null;
+    _ringTimeout?.cancel();
+    _ringTimeout = null;
+    unawaited(_ringtone.invokeMethod<void>('stop').catchError((_) {}));
   }
 
   Future<String> _keyFor(Json call) async {
@@ -352,7 +353,7 @@ class Calls extends ChangeNotifier {
   void _ring(Json call) {
     chat.loadProfiles([call['initiatorId'] as String]);
     incoming = call;
-    _ringBuzz();
+    _startRing();
     _changed();
   }
 

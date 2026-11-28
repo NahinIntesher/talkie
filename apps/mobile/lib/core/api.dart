@@ -41,6 +41,8 @@ class Api {
   Future<dynamic> _send(String method, String path, [Object? body, bool retried = false]) async {
     final abort = Completer<void>();
     final request = http.AbortableRequest(method, Uri.parse(Config.api(path)), abortTrigger: abort.future)..headers.addAll(_headers);
+    // The shared-hosting HTTP/1.1 gateway has returned extra responses on reused connections.
+    request.persistentConnection = false;
     request.headers['accept'] = 'application/json';
     if (body != null) {
       request.headers['content-type'] = 'application/json';

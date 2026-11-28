@@ -4,6 +4,9 @@ import android.app.PictureInPictureParams
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.media.AudioAttributes
+import android.media.Ringtone
+import android.media.RingtoneManager
 import android.os.Build
 import android.util.Rational
 import androidx.core.content.ContextCompat
@@ -14,9 +17,29 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private var pipEnabled = false
     private var openId: String? = null
+    private var ringtone: Ringtone? = null
+    private var ringtoneChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
+        ringtoneChannel = MethodChannel(engine.dartExecutor.binaryMessenger, "talkie/ringtone")
+        ringtoneChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start" -> {
+                    stopRingtone()
+                    runCatching {
+                        ringtone = RingtoneManager.getRingtone(this, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
+                        ringtone?.audioAttributes = AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build()
+                        if (Build.VERSION.SDK_INT >= 28) ringtone?.isLooping = true
+                        ringtone?.play()
+                    }
+                    result.success(null)
+                }
+                "stop" -> { stopRingtone(); result.success(null) }
+                else -> result.notImplemented()
+            }
+        }
         openId = intent.getStringExtra("ongoingId")
         channel = MethodChannel(engine.dartExecutor.binaryMessenger, "talkie/ongoing")
         channel?.setMethodCallHandler { call, result ->
@@ -47,6 +70,11 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun stopRingtone() {
+        ringtone?.stop()
+        ringtone = null
     }
 
     private fun canPip() = Build.VERSION.SDK_INT >= 26 && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
@@ -85,6 +113,9 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(engine: FlutterEngine) {
+        stopRingtone()
+        ringtoneChannel?.setMethodCallHandler(null)
+        ringtoneChannel = null
         channel?.setMethodCallHandler(null)
         channel = null
         stopService(Intent(this, OngoingCallService::class.java))

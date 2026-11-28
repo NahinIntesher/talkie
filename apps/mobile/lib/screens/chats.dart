@@ -61,9 +61,14 @@ class _ChatsScreenState extends State<ChatsScreen> {
                 const SizedBox(width: 10),
                 ValueListenableBuilder(
                   valueListenable: realtime.state,
-                  builder: (_, state, _) => state == Connection.connected
-                      ? const SizedBox.shrink()
-                      : SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: p.subtle)),
+                  builder: (_, state, _) => switch (state) {
+                    Connection.connected => const SizedBox.shrink(),
+                    Connection.connecting => SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: p.subtle)),
+                    Connection.offline => Tooltip(
+                      message: t('লাইভ সংযোগ বিচ্ছিন্ন। আবার সংযোগের চেষ্টা চলছে।', 'Live connection interrupted'),
+                      child: Icon(Icons.cloud_off_outlined, size: 17, color: p.subtle),
+                    ),
+                  },
                 ),
               ]),
       ),

@@ -12,6 +12,7 @@ import android.content.SharedPreferences;
 import android.content.pm.ShortcutInfo;
 import android.content.pm.ShortcutManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Typeface;
@@ -207,7 +208,9 @@ public final class BubblesPlugin implements FlutterPlugin, ActivityAware, Method
         for (StatusBarNotification item : notifications().getActiveNotifications()) {
             if (item.getId() != id || !conversation.equals(item.getTag())) continue;
             String shortcut = PREFIX + device + ":" + conversation;
-            Icon icon = conversationIcon(title);
+            byte[] photo = call.argument("avatar");
+            Bitmap bitmap = photo == null ? null : BitmapFactory.decodeByteArray(photo, 0, photo.length);
+            Icon icon = bitmap == null ? conversationIcon(title) : Icon.createWithAdaptiveBitmap(bitmap);
             Person person = new Person.Builder().setName(title).setKey(shortcut).setIcon(icon).build();
             ShortcutManager manager = context.getSystemService(ShortcutManager.class);
             manager.pushDynamicShortcut(new ShortcutInfo.Builder(context, shortcut)

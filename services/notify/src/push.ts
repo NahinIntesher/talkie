@@ -53,6 +53,7 @@ interface Deps {
   fcm: Fcm;
   log: Logger;
   profiles: (ids: string[]) => Promise<Profile[]>;
+  avatar: (senderId: string, recipients: string[]) => Promise<{ avatarUrl: string | null; recipients: string[] }>;
 }
 
 interface Preference {
@@ -63,7 +64,7 @@ interface Preference {
   show_preview: number;
 }
 
-export function pushHandlers({ origin, db, fcm, log, profiles }: Deps) {
+export function pushHandlers({ origin, db, fcm, log, profiles, avatar }: Deps) {
   const placeholders = (list: unknown[]) => list.map(() => '?').join(',');
 
   const preferences = async (userIds: string[]) => {
@@ -76,14 +77,15 @@ export function pushHandlers({ origin, db, fcm, log, profiles }: Deps) {
   /** Sends to every device of each user; forgets tokens Firebase says are dead. */
   const deliver = async (userIds: string[], build: (userId: string) => PushMessage | null) => {
     if (!userIds.length) return;
-    const tokens = await db.query<{ device_id: string; user_id: string; token: string; inline_reply: number }>(
-      `SELECT device_id, user_id, token, inline_reply FROM push_tokens WHERE provider = 'fcm' AND user_id IN (${placeholders(userIds)})`,
+    const tokens = await db.query<{ device_id: string; user_id: string; token: string; inline_reply: number; phone_ringtone: number }>(
+      `SELECT device_id, user_id, token, inline_reply, phone_ringtone FROM push_tokens WHERE provider = 'fcm' AND user_id IN (${placeholders(userIds)})`,
       userIds,
     );
     await Promise.all(
       tokens.map(async (row) => {
         const message = build(row.user_id);
         if (!message) return;
+        if (message.channel === 'calls' && row.phone_ringtone) message.channel = 'incoming_calls';
         message.data = { ...message.data, deviceId: row.device_id, userId: row.user_id };
         const result = await fcm.send(row.token, message, !!row.inline_reply && message.channel === 'messages');
         if (result === 'invalid_token') await db.run('DELETE FROM push_tokens WHERE device_id = ? AND token = ?', [row.device_id, row.token]);
@@ -106,7 +108,11 @@ export function pushHandlers({ origin, db, fcm, log, profiles }: Deps) {
       const muted = new Set(p.mutedBy ?? []);
       const targets = p.recipients.filter((id) => id !== p.senderId && !muted.has(id));
       if (!targets.length) return;
-      const [people, prefer] = await Promise.all([profiles([p.senderId, ...targets]), preferences(targets)]);
+      const [people, prefer, photo] = await Promise.all([
+        profiles([p.senderId, ...targets]), preferences(targets),
+        avatar(p.senderId, targets).catch(() => null),
+      ]);
+      const photoRecipients = new Set(photo?.recipients);
       const byId = new Map(people.map((person) => [person.id, person]));
       const sender = byId.get(p.senderId)?.displayName ?? 'Talkie';
       const group = p.groupName ?? null;
@@ -119,7 +125,10 @@ export function pushHandlers({ origin, db, fcm, log, profiles }: Deps) {
         return {
           title: preview ? (group ?? sender) : 'Talkie',
           body: preview ? (group ? `${sender}: ${what}` : what) : w.hidden,
-          data: { type: 'message', conversationId: p.conversationId, messageId: p.messageId, locale: byId.get(userId)?.locale ?? 'bn' },
+          data: {
+            type: 'message', conversationId: p.conversationId, messageId: p.messageId, locale: byId.get(userId)?.locale ?? 'bn',
+            ...(preview && photo?.avatarUrl && photoRecipients.has(userId) ? { avatarUrl: photo.avatarUrl, senderName: sender } : {}),
+          },
           channel: 'messages',
           tag: p.conversationId,
           link: `${origin}/app?c=${p.conversationId}`,

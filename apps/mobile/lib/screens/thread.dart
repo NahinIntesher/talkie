@@ -257,7 +257,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
                 }
                 if (!await enableBubbles(context, device) || !mounted) return;
                 final shown = await push.openBubble(conversation: c.id, device: device, user: chat.me,
-                  title: chat.titleOf(c, fallback: t('চ্যাট', 'Chat')), locale: context.read<Prefs>().locale);
+                  title: chat.titleOf(c, fallback: t('চ্যাট', 'Chat')), locale: context.read<Prefs>().locale, avatarUrl: chat.avatarOf(c));
                 if (mounted && !shown) {
                   showMessage(context, t('নোটিফিকেশন থেকে বাবল খুলে দেখুন।', 'Try opening the bubble from the notification.'));
                 }

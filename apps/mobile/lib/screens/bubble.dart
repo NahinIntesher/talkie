@@ -8,6 +8,7 @@ import '../chat/models.dart';
 import '../core/prefs.dart';
 import '../ui/format.dart';
 import '../ui/theme.dart';
+import '../ui/widgets.dart';
 import 'attachments.dart';
 import 'chats.dart';
 import 'settings.dart';
@@ -39,13 +40,13 @@ class _MessageBubbleState extends State<MessageBubble> {
     final media = m.kind == 'image' || m.kind == 'video';
     final fg = mine ? p.bubbleOutText : p.text;
     final meta = mine ? p.bubbleOutText.withValues(alpha: 0.75) : p.subtle;
-    const r = Radius.circular(20);
-    const tight = Radius.circular(6);
+    const r = Radius.circular(22);
+    const tight = Radius.circular(12);
     final radius = BorderRadius.only(
       topLeft: !mine && !widget.firstOfRun ? tight : r,
       topRight: mine && !widget.firstOfRun ? tight : r,
-      bottomLeft: !mine && widget.lastOfRun ? tight : r,
-      bottomRight: mine && widget.lastOfRun ? tight : r,
+      bottomLeft: !mine && !widget.lastOfRun ? tight : r,
+      bottomRight: mine && !widget.lastOfRun ? tight : r,
     );
 
     Widget content;
@@ -128,22 +129,31 @@ class _MessageBubbleState extends State<MessageBubble> {
             transform: Matrix4.translationValues(drag, 0, 0),
             child: Align(
               alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-              child: Stack(clipBehavior: Clip.none, children: [
-                bubble,
-                if (m.reactions.isNotEmpty)
-                  Positioned(
-                    bottom: -14,
-                    right: mine ? 10 : null,
-                    left: mine ? null : 10,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(99), border: Border.all(color: p.wallpaper, width: 2)),
-                      child: Text(
-                        '${m.reactions.map((r) => r.emoji).take(3).join()}${m.reactions.fold<int>(0, (a, r) => a + r.userIds.length) > 1 ? ' ${m.reactions.fold<int>(0, (a, r) => a + r.userIds.length)}' : ''}',
-                        style: TextStyle(fontSize: 13, color: p.muted, fontWeight: FontWeight.w700),
+              child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                if (!mine) ...[
+                  if (widget.lastOfRun)
+                    Avatar(name: chat.nameOf(m.senderId), url: chat.profiles[m.senderId]?.avatarUrl, size: 26)
+                  else
+                    const SizedBox(width: 26),
+                  const SizedBox(width: 6),
+                ],
+                Flexible(child: Stack(clipBehavior: Clip.none, children: [
+                  bubble,
+                  if (m.reactions.isNotEmpty)
+                    Positioned(
+                      bottom: -14,
+                      right: mine ? 10 : null,
+                      left: mine ? null : 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(99), border: Border.all(color: p.wallpaper, width: 2)),
+                        child: Text(
+                          '${m.reactions.map((r) => r.emoji).take(3).join()}${m.reactions.fold<int>(0, (a, r) => a + r.userIds.length) > 1 ? ' ${m.reactions.fold<int>(0, (a, r) => a + r.userIds.length)}' : ''}',
+                          style: TextStyle(fontSize: 13, color: p.muted, fontWeight: FontWeight.w700),
+                        ),
                       ),
                     ),
-                  ),
+                ])),
               ]),
             ),
           ),

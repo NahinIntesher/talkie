@@ -13,7 +13,6 @@ class Realtime {
 
   io.Socket? socket;
   final ValueNotifier<Connection> state = ValueNotifier(Connection.connecting);
-  int _failures = 0;
 
   io.Socket connect() {
     if (socket != null) return socket!;
@@ -23,6 +22,7 @@ class Realtime {
           .setPath('/ws')
           .setTransports(['websocket'])
           .setAuthFn((callback) => callback({'token': api.accessToken}))
+          .setTimeout(8000)
           .setReconnectionDelay(500)
           .setReconnectionDelayMax(8000)
           .enableReconnection()
@@ -30,25 +30,24 @@ class Realtime {
           .disableAutoConnect()
           .build(),
     );
+    var retriedAuthorization = false;
     s.onConnect((_) {
-      _failures = 0;
+      retriedAuthorization = false;
       state.value = Connection.connected;
     });
-    s.onDisconnect((_) => state.value = Connection.connecting);
-    s.onReconnectAttempt((_) => state.value = Connection.connecting);
+    s.onDisconnect((_) => state.value = Connection.offline);
     s.onConnectError((error) async {
       state.value = Connection.offline;
-      // Expired access token: refresh it so the next automatic attempt carries the new one.
-      if ('$error'.contains('unauthorized')) {
-        await api.refresh?.call();
-        return;
+      // A server-denied handshake closes this Socket.IO subscription and needs an explicit reconnect.
+      if (!retriedAuthorization && '$error'.contains('unauthorized')) {
+        retriedAuthorization = true;
+        if (await api.refresh?.call() == true && identical(socket, s)) s.connect();
       }
-      // WebSocket blocked on this network or host: after a few failures, start with long-polling and let it
-      // upgrade to WebSocket when that works (the next automatic attempt uses the new order).
-      if (++_failures == 3) s.io.options?['transports'] = ['polling', 'websocket'];
     });
+    s.onReconnectFailed((_) => state.value = Connection.offline);
+    socket = s;
     s.connect();
-    return socket = s;
+    return s;
   }
 
   /// Gives the open socket a refreshed access token.

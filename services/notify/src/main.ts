@@ -67,11 +67,12 @@ service.app.post('/internal/email/otp', { preHandler: guards.requireInternal }, 
 /** The device's push token (Firebase Cloud Messaging). */
 service.app.put('/notify/push-token', { preHandler: guards.requireAuth }, async (request) => {
   const auth = caller(request);
-  const input = z.object({ provider: z.enum(['fcm', 'webpush']), token: z.string().min(10).max(1024), inlineReply: z.boolean().default(false) }).parse(request.body);
+  const input = z.object({ provider: z.enum(['fcm', 'webpush']), token: z.string().min(10).max(1024), inlineReply: z.boolean().default(false), phoneRingtone: z.boolean().default(false) }).parse(request.body);
   await db.run(
-    `INSERT INTO push_tokens (device_id, user_id, provider, token, inline_reply) VALUES (?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE provider = VALUES(provider), token = VALUES(token), user_id = VALUES(user_id), inline_reply = VALUES(inline_reply)`,
-    [auth.deviceId, auth.userId, input.provider, input.token, input.inlineReply],
+    `INSERT INTO push_tokens (device_id, user_id, provider, token, inline_reply, phone_ringtone) VALUES (?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE provider = VALUES(provider), token = VALUES(token), user_id = VALUES(user_id),
+       inline_reply = VALUES(inline_reply), phone_ringtone = VALUES(phone_ringtone)`,
+    [auth.deviceId, auth.userId, input.provider, input.token, input.inlineReply, input.phoneRingtone],
   );
   return { ok: true };
 });
@@ -88,6 +89,16 @@ else {
     db,
     fcm,
     log: service.log,
+    avatar: async (senderId, recipients) => {
+      const response = await fetch(`${env.USERS_URL}/internal/notification-avatar`, {
+        method: 'POST',
+        headers: { 'x-internal-token': env.INTERNAL_TOKEN, 'content-type': 'application/json' },
+        body: JSON.stringify({ senderId, recipients }),
+        signal: AbortSignal.timeout(1_500),
+      });
+      if (!response.ok) throw new Error(`notification avatar lookup failed (${response.status})`);
+      return await response.json() as { avatarUrl: string | null; recipients: string[] };
+    },
     profiles: async (userIds) => {
       const response = await fetch(`${env.USERS_URL}/internal/admin/profiles`, {
         method: 'POST',

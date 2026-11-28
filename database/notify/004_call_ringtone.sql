@@ -1,0 +1,1 @@
+ALTER TABLE push_tokens ADD COLUMN phone_ringtone BOOLEAN NOT NULL DEFAULT FALSE;

@@ -502,6 +502,7 @@ class Chat extends ChangeNotifier {
       _readSent[conversationId] = message.id;
     } catch (error) {
       _upsert(conversationId, optimistic.copyWith(local: 'failed'));
+      debugPrint('Talkie message send failed: ${error is ApiError ? '${error.status} ${error.code}' : error.runtimeType}');
       rethrow;
     } finally {
       uploads.remove(localId);
@@ -900,6 +901,14 @@ class Chat extends ChangeNotifier {
 
     _timers.add(Timer.periodic(const Duration(seconds: 15), (_) {
       if (appVisible && realtime.state.value != Connection.connected) _syncAfterReconnect();
+    }));
+
+    // A socket may stay connected while a notification is missed. Catch up the open chat without waiting for another send.
+    _timers.add(Timer.periodic(const Duration(seconds: 30), (_) {
+      final conversationId = activeId;
+      if (appVisible && conversationId != null && realtime.state.value == Connection.connected) {
+        _loadNewer(conversationId);
+      }
     }));
 
     // Expire stale typing indicators.

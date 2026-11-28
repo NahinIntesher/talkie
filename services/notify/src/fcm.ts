@@ -16,7 +16,7 @@ export interface PushMessage {
   /** Delivered to the app with the notification (all values are strings in FCM). */
   data: Record<string, string>;
   /** Android notification channel: `messages` or `calls`. */
-  channel: 'messages' | 'calls';
+  channel: 'messages' | 'calls' | 'incoming_calls';
   /** Notifications with the same tag replace each other (one per chat). */
   tag?: string;
   /** Calls ring at once and expire quickly; messages may wait for a sleeping phone. */

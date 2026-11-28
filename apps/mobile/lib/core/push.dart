@@ -1,14 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data' show BytesBuilder;
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
 
 import 'api.dart';
 import 'chat_bubbles.dart';
+import 'config.dart';
 import 'notification_reply.dart';
 
 @pragma('vm:entry-point')
@@ -94,9 +97,10 @@ class Push {
     final android = _notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     await android?.createNotificationChannel(_messages);
     await android?.createNotificationChannel(AndroidNotificationChannel(
-      'calls',
+      'incoming_calls',
       bangla ? 'কল' : 'Calls',
       importance: Importance.max,
+      sound: const UriAndroidNotificationSound('content://settings/system/ringtone'),
       audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
     ));
     _localReady = true;
@@ -155,23 +159,54 @@ class Push {
         title: message.notification?.title ?? message.data['title'] as String? ?? 'Talkie',
         body: message.notification?.body ?? message.data['body'] as String?,
         locale: message.data['locale'] as String?,
+        avatarUrl: message.data['avatarUrl'] as String?,
+        senderName: message.data['senderName'] as String?,
       );
     } catch (error) {
       debugPrint('Talkie push: could not show a message notification ($error)');
     }
   }
 
-  Future<bool> openBubble({required String conversation, required String device, required String user, required String title, required String locale}) async {
+  Future<bool> openBubble({required String conversation, required String device, required String user, required String title, required String locale, String? avatarUrl}) async {
     if (!_localReady || !validBubbleId(conversation)) return false;
     return _postChat(conversation: conversation, device: device, user: user, title: title,
-      body: locale == 'en' ? 'Open chat' : 'চ্যাট খুলুন', locale: locale, expand: true);
+      body: locale == 'en' ? 'Open chat' : 'চ্যাট খুলুন', locale: locale, avatarUrl: avatarUrl, expand: true);
+  }
+
+  Future<Uint8List?> _avatarBytes(String? url) async {
+    if (url == null) return null;
+    final uri = Uri.tryParse(Config.asset(url));
+    if (uri == null || !uri.hasAuthority || !['http', 'https'].contains(uri.scheme) ||
+        uri.origin != Uri.parse(Config.origin).origin ||
+        !RegExp(r'^/api/media/avatars/[0-9]+$').hasMatch(uri.path)) {
+      return null;
+    }
+    final abort = Completer<void>();
+    final timer = Timer(const Duration(milliseconds: 1200), abort.complete);
+    final client = http.Client();
+    try {
+      final response = await client.send(http.AbortableRequest('GET', uri, abortTrigger: abort.future)..followRedirects = false);
+      if (response.statusCode != 200 || response.headers['content-type']?.startsWith('image/jpeg') != true) return null;
+      final bytes = BytesBuilder(copy: false);
+      await for (final chunk in response.stream) {
+        if (bytes.length + chunk.length > 512 * 1024) return null;
+        bytes.add(chunk);
+      }
+      return bytes.isEmpty ? null : bytes.takeBytes();
+    } catch (_) {
+      return null;
+    } finally {
+      timer.cancel();
+      client.close();
+    }
   }
 
   Future<bool> _postChat({required String conversation, required String? device, required String? user,
-    required String title, required String? body, required String? locale, bool expand = false}) async {
+    required String title, required String? body, required String? locale, String? avatarUrl, String? senderName, bool expand = false}) async {
     if (title.trim().isEmpty) title = 'Talkie';
     final state = await bubbleStatus(device);
     final bubble = state.enabled && state.supported;
+    final avatar = await _avatarBytes(avatarUrl);
     var id = 0;
     for (final digit in conversation.codeUnits) {
       id = (31 * id + digit) & 0x7fffffff;
@@ -184,10 +219,11 @@ class Push {
         _messages.id, _messages.name, importance: Importance.high, priority: Priority.high, tag: conversation,
         category: AndroidNotificationCategory.message,
         visibility: NotificationVisibility.private,
+        largeIcon: avatar == null ? null : ByteArrayAndroidBitmap(avatar),
         silent: expand,
         styleInformation: bubble ? MessagingStyleInformation(
           Person(name: locale == 'en' ? 'You' : 'আপনি'),
-          messages: [Message(body ?? '', DateTime.now(), Person(name: title))],
+          messages: [Message(body ?? '', DateTime.now(), Person(name: senderName ?? title, icon: avatar == null ? null : ByteArrayAndroidIcon(avatar)))],
         ) : null,
         actions: [if (device != null) AndroidNotificationAction('reply', reply, cancelNotification: !bubble, inputs: [AndroidNotificationActionInput(label: reply)])],
       )),
@@ -195,6 +231,7 @@ class Push {
     if (!bubble) return false;
     final metadata = {
       'notificationId': id, 'conversation': conversation, 'device': device, 'title': title, 'expand': expand,
+      'avatar': ?avatar,
     };
     // Android enqueues notify() asynchronously, so the first lookup may precede the system post.
     for (final pause in [Duration.zero, const Duration(milliseconds: 120), const Duration(milliseconds: 350)]) {
@@ -207,7 +244,7 @@ class Push {
   Future<void> _send(String token) async {
     _unsentToken = token;
     try {
-      await api.put('/notify/push-token', {'provider': 'fcm', 'token': token, 'inlineReply': true});
+      await api.put('/notify/push-token', {'provider': 'fcm', 'token': token, 'inlineReply': true, 'phoneRingtone': true});
       if (_unsentToken == token) _unsentToken = null;
     } catch (_) { /* Retry on resume. */ }
   }
