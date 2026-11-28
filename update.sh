@@ -14,11 +14,13 @@ trap 'rm -f "$TALKIE_UPDATE_COPY"' EXIT
 set -eo pipefail
 cd "$TALKIE_APP_DIR"
 
-before=$(git rev-parse HEAD 2>/dev/null || echo none)
 git fetch --quiet origin cpanel
 git reset --quiet --hard origin/cpanel   # the branch is build output only: always take it as it is
 after=$(git rev-parse --short HEAD)
 echo "Code: $after"
+if [ -f revision.txt ]; then
+  echo "Source: $(cat revision.txt)"
+fi
 
 # The app's Node.js environment (cPanel "Setup Node.js App" creates it as ~/nodevenv/<app folder>/<version>).
 # CloudLinux's activate script reads variables that may be unset, so it is loaded without strict checks.
@@ -27,10 +29,14 @@ for activate in "$HOME/nodevenv/${PWD#"$HOME"/}"/*/bin/activate; do
   [ -f "$activate" ] && source "$activate"
 done
 
-if [ "$before" = none ] || ! git diff --quiet "$before" HEAD -- package.json; then
+mkdir -p tmp
+manifest=$(git rev-parse HEAD:package.json)
+installed=$(cat tmp/talkie-installed-manifest 2>/dev/null || true)
+if [ "$manifest" != "$installed" ] || [ ! -d node_modules ]; then
   echo "Installing packages…"
   npm install --omit=dev --no-audit --no-fund
+  printf '%s\n' "$manifest" > tmp/talkie-installed-manifest
 fi
 
-mkdir -p tmp && touch tmp/restart.txt
+touch tmp/restart.txt
 echo "Talkie updated to $after. It restarts with the next visit (or press Restart in Setup Node.js App)."
