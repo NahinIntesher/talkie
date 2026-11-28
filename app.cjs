@@ -163,19 +163,44 @@ const gateway = http.createServer((req, res) => {
   if ((req.url || '').split('?')[0] === '/api/health') return void health(res);
   const target = route(req.url || '/');
   if (!target) return notFound(res);
-  const upstream = http.request(
-    { host: '127.0.0.1', port: target.port, method: req.method, path: target.path, headers: { ...req.headers, ...forwardedHeaders(req) } },
-    (reply) => {
-      res.writeHead(reply.statusCode || 502, reply.headers);
-      reply.pipe(res);
-    },
-  );
-  upstream.on('error', () => {
-    if (res.headersSent) return res.destroy();
-    res.writeHead(503, { 'content-type': 'application/json', 'retry-after': '3' });
-    res.end('{"error":{"code":"unavailable","message":"Talkie is starting. Try again in a moment."}}');
+  const deadline = Date.now() + 8_000;
+  let upstream;
+  let pending;
+  res.on('close', () => {
+    clearTimeout(pending);
+    upstream?.destroy();
   });
-  req.pipe(upstream);
+  const forward = () => {
+    if (res.destroyed) return;
+    let connected = false;
+    upstream = http.request(
+      { host: '127.0.0.1', port: target.port, method: req.method, path: target.path, headers: { ...req.headers, ...forwardedHeaders(req) } },
+      (reply) => {
+        res.writeHead(reply.statusCode || 502, reply.headers);
+        reply.pipe(res);
+      },
+    );
+    upstream.once('socket', (socket) => {
+      const pipe = () => {
+        connected = true;
+        req.pipe(upstream);
+      };
+      if (socket.connecting) socket.once('connect', pipe);
+      else pipe();
+    });
+    upstream.on('error', (error) => {
+      if (res.destroyed) return;
+      // No request body was forwarded, so this also works for sends and calls.
+      if (!connected && error.code === 'ECONNREFUSED' && Date.now() < deadline) {
+        pending = setTimeout(forward, 350);
+        return;
+      }
+      if (res.headersSent) return res.destroy();
+      res.writeHead(503, { 'content-type': 'application/json', 'retry-after': '3' });
+      res.end('{"error":{"code":"unavailable","message":"Talkie is starting. Try again in a moment."}}');
+    });
+  };
+  forward();
 });
 
 // WebSockets (Socket.IO on /ws): pass the upgrade straight through to the realtime service.
