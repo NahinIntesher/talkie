@@ -132,7 +132,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
         ],
       ),
       body: Column(children: [
-        if (items.any((m) => m.unreadable != null))
+        if (items.any((m) => m.unreadable == 'not_for_this_device'))
           TextButton.icon(icon: const Icon(Icons.history), label: Text(t('পুরোনো বার্তা ফিরিয়ে আনুন', 'Restore older messages')),
             onPressed: () async {
               await Navigator.push(context, MaterialPageRoute(builder: (_) => const DevicesScreen(historyFirst: true)));
