@@ -341,8 +341,10 @@ var Snowflake = class {
 // packages/core/src/net.ts
 async function lookupInternal(token, log, operation, url, body, retry = true) {
   let status;
+  let transportError;
   for (let attempt = 0; ; attempt++) {
     status = void 0;
+    transportError = void 0;
     try {
       const response = await fetch(url, {
         method: body === void 0 ? "GET" : "POST",
@@ -353,13 +355,15 @@ async function lookupInternal(token, log, operation, url, body, retry = true) {
       status = response.status;
       if (response.ok) return await response.json();
       await response.body?.cancel();
-    } catch {
+    } catch (error) {
+      const failure = error;
+      transportError = failure.cause?.code ?? failure.name;
     }
     if (status === 404) throw new AppError("not_found", "Not found.");
     if (!retry || attempt > 0 || status !== void 0 && status >= 400 && status < 500) break;
     await new Promise((resolve2) => setTimeout(resolve2, 250));
   }
-  log.warn({ operation, upstreamStatus: status }, "internal service request failed");
+  log.warn({ operation, upstreamStatus: status, transportError }, "internal service request failed");
   throw new AppError("unavailable", "Talkie is busy right now. Please try again in a moment.");
 }
 

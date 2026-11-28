@@ -71,6 +71,8 @@ const shared = {
   TRUST_PROXY: 'true',
   BUS_DRIVER: process.env.REDIS_URL ? (process.env.BUS_DRIVER || 'redis') : 'process',
   OUTBOX_POLL_MS: process.env.OUTBOX_POLL_MS || '1000',
+  // Each service has its own pool, but shared hosting counts connections per database user.
+  DB_POOL_SIZE: process.env.DB_POOL_SIZE || '2',
   JWT_PRIVATE_KEY_FILE: process.env.JWT_PRIVATE_KEY_FILE || path.join(ROOT, 'secrets', 'jwt-private.pem'),
   JWT_PUBLIC_KEY_FILE: process.env.JWT_PUBLIC_KEY_FILE || path.join(ROOT, 'secrets', 'jwt-public.pem'),
   STORAGE_DIR: process.env.STORAGE_DIR || path.join(ROOT, 'data', 'media'),
@@ -103,6 +105,16 @@ function forwardedHeaders(req) {
     'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https',
     'x-forwarded-host': req.headers['x-forwarded-host'] || req.headers.host || '',
   };
+}
+
+/** HTTP framing belongs to each connection. Node decodes incoming chunked streams. */
+function endToEndHeaders(headers) {
+  const result = { ...headers };
+  const connectionTokens = String(headers.connection || '').toLowerCase().split(',').map((name) => name.trim());
+  for (const name of ['connection', 'keep-alive', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade', ...connectionTokens]) {
+    delete result[name];
+  }
+  return result;
 }
 
 const notFound = (res) => {
@@ -177,9 +189,9 @@ const gateway = http.createServer((req, res) => {
     if (res.destroyed) return;
     let connected = false;
     upstream = http.request(
-      { host: '127.0.0.1', port: target.port, method: req.method, path: target.path, headers: { ...req.headers, ...forwardedHeaders(req) } },
+      { host: '127.0.0.1', port: target.port, method: req.method, path: target.path, headers: { ...endToEndHeaders(req.headers), ...forwardedHeaders(req) } },
       (reply) => {
-        res.writeHead(reply.statusCode || 502, reply.headers);
+        res.writeHead(reply.statusCode || 502, endToEndHeaders(reply.headers));
         reply.pipe(res);
       },
     );
