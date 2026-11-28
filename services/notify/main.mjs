@@ -1029,7 +1029,7 @@ var words = {
     groupCall: "\u0997\u09CD\u09B0\u09C1\u09AA \u0995\u09B2"
   }
 };
-function pushHandlers({ origin, db: db2, fcm: fcm2, log, profiles }) {
+function pushHandlers({ origin, db: db2, fcm: fcm2, log, profiles, avatar }) {
   const placeholders = (list) => list.map(() => "?").join(",");
   const preferences = async (userIds) => {
     const rows = await db2.query(`SELECT * FROM notification_preferences WHERE user_id IN (${placeholders(userIds)})`, userIds);
@@ -1039,13 +1039,14 @@ function pushHandlers({ origin, db: db2, fcm: fcm2, log, profiles }) {
   const deliver = async (userIds, build) => {
     if (!userIds.length) return;
     const tokens = await db2.query(
-      `SELECT device_id, user_id, token, inline_reply FROM push_tokens WHERE provider = 'fcm' AND user_id IN (${placeholders(userIds)})`,
+      `SELECT device_id, user_id, token, inline_reply, phone_ringtone FROM push_tokens WHERE provider = 'fcm' AND user_id IN (${placeholders(userIds)})`,
       userIds
     );
     await Promise.all(
       tokens.map(async (row) => {
         const message = build(row.user_id);
         if (!message) return;
+        if (message.channel === "calls" && row.phone_ringtone) message.channel = "incoming_calls";
         message.data = { ...message.data, deviceId: row.device_id, userId: row.user_id };
         const result = await fcm2.send(row.token, message, !!row.inline_reply && message.channel === "messages");
         if (result === "invalid_token") await db2.run("DELETE FROM push_tokens WHERE device_id = ? AND token = ?", [row.device_id, row.token]);
@@ -1059,7 +1060,12 @@ function pushHandlers({ origin, db: db2, fcm: fcm2, log, profiles }) {
       const muted = new Set(p.mutedBy ?? []);
       const targets = p.recipients.filter((id2) => id2 !== p.senderId && !muted.has(id2));
       if (!targets.length) return;
-      const [people, prefer] = await Promise.all([profiles([p.senderId, ...targets]), preferences(targets)]);
+      const [people, prefer, photo] = await Promise.all([
+        profiles([p.senderId, ...targets]),
+        preferences(targets),
+        avatar(p.senderId, targets).catch(() => null)
+      ]);
+      const photoRecipients = new Set(photo?.recipients);
       const byId = new Map(people.map((person) => [person.id, person]));
       const sender = byId.get(p.senderId)?.displayName ?? "Talkie";
       const group = p.groupName ?? null;
@@ -1072,7 +1078,13 @@ function pushHandlers({ origin, db: db2, fcm: fcm2, log, profiles }) {
         return {
           title: preview ? group ?? sender : "Talkie",
           body: preview ? group ? `${sender}: ${what}` : what : w.hidden,
-          data: { type: "message", conversationId: p.conversationId, messageId: p.messageId, locale: byId.get(userId)?.locale ?? "bn" },
+          data: {
+            type: "message",
+            conversationId: p.conversationId,
+            messageId: p.messageId,
+            locale: byId.get(userId)?.locale ?? "bn",
+            ...preview && photo?.avatarUrl && photoRecipients.has(userId) ? { avatarUrl: photo.avatarUrl, senderName: sender } : {}
+          },
           channel: "messages",
           tag: p.conversationId,
           link: `${origin}/app?c=${p.conversationId}`
@@ -1164,11 +1176,12 @@ service.app.post("/internal/email/otp", { preHandler: guards.requireInternal }, 
 });
 service.app.put("/notify/push-token", { preHandler: guards.requireAuth }, async (request) => {
   const auth = caller(request);
-  const input = z3.object({ provider: z3.enum(["fcm", "webpush"]), token: z3.string().min(10).max(1024), inlineReply: z3.boolean().default(false) }).parse(request.body);
+  const input = z3.object({ provider: z3.enum(["fcm", "webpush"]), token: z3.string().min(10).max(1024), inlineReply: z3.boolean().default(false), phoneRingtone: z3.boolean().default(false) }).parse(request.body);
   await db.run(
-    `INSERT INTO push_tokens (device_id, user_id, provider, token, inline_reply) VALUES (?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE provider = VALUES(provider), token = VALUES(token), user_id = VALUES(user_id), inline_reply = VALUES(inline_reply)`,
-    [auth.deviceId, auth.userId, input.provider, input.token, input.inlineReply]
+    `INSERT INTO push_tokens (device_id, user_id, provider, token, inline_reply, phone_ringtone) VALUES (?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE provider = VALUES(provider), token = VALUES(token), user_id = VALUES(user_id),
+       inline_reply = VALUES(inline_reply), phone_ringtone = VALUES(phone_ringtone)`,
+    [auth.deviceId, auth.userId, input.provider, input.token, input.inlineReply, input.phoneRingtone]
   );
   return { ok: true };
 });
@@ -1182,6 +1195,16 @@ else {
     db,
     fcm,
     log: service.log,
+    avatar: async (senderId, recipients) => {
+      const response = await fetch(`${env.USERS_URL}/internal/notification-avatar`, {
+        method: "POST",
+        headers: { "x-internal-token": env.INTERNAL_TOKEN, "content-type": "application/json" },
+        body: JSON.stringify({ senderId, recipients }),
+        signal: AbortSignal.timeout(1500)
+      });
+      if (!response.ok) throw new Error(`notification avatar lookup failed (${response.status})`);
+      return await response.json();
+    },
     profiles: async (userIds) => {
       const response = await fetch(`${env.USERS_URL}/internal/admin/profiles`, {
         method: "POST",
