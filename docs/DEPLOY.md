@@ -198,7 +198,7 @@ bash update.sh
 
 After updating, open `/api/health` on the deployed domain. Its `revision` should match the `Source` line from the update script and the services should show `up`. The `Code` line identifies the deployment branch checkout. If the revision stays old, use **Restart** in **Setup Node.js App** and check again. If services stay down, check the app folder's `talkie.log` and cPanel **Resource Usage**. A response from Imunify360 means the request was blocked before reaching Talkie.
 
-With `DB_SHARED_NAME` set, the cPanel services in each worker share a single MySQL pool. It defaults to four connections per worker. If you set `DB_POOL_SIZE` in cPanel, budget for all workers and any other applications using the same MySQL account. Check response times under concurrent use before increasing it.
+With `DB_SHARED_NAME` set, the cPanel services in each worker share a single MySQL pool. It defaults to eight connections per worker. If you set `DB_POOL_SIZE` in cPanel, budget for all workers and any other applications using the same MySQL account. Check response times under concurrent use before increasing it.
 
 **Without git: the Linux build as a download.** Every push to `main` builds the upload on Linux, the same OS as the server:
 1. Open GitHub → **Actions** → **cPanel build** → the latest green run → **Artifacts** → `talkie-cpanel`.
