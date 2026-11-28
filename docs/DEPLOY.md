@@ -194,7 +194,9 @@ Every update after that:
 bash update.sh
 ```
 
-`update.sh` pulls the branch, runs `npm install` only when `package.json` changed, and restarts the app. `.env`, `secrets/`, `node_modules/` and `data/` are git-ignored there, so updates never touch them.
+`update.sh` fetches the deployment branch, runs `npm install` when `package.json` changes, and requests a restart. Keep the app running while you update. `.env`, `secrets/`, `node_modules/` and `data/` are git-ignored there, so updates preserve them.
+
+After updating, open `/api/health` on the deployed domain. Its `revision` should match the `Source` line from the update script and the services should show `up`. The `Code` line identifies the deployment branch checkout. If the revision stays old, use **Restart** in **Setup Node.js App** and check again. If services stay down, check the app folder's `talkie.log` and cPanel **Resource Usage**. A response from Imunify360 means the request was blocked before reaching Talkie.
 
 **Without git: the Linux build as a download.** Every push to `main` builds the upload on Linux, the same OS as the server:
 1. Open GitHub → **Actions** → **cPanel build** → the latest green run → **Artifacts** → `talkie-cpanel`.

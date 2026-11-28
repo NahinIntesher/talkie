@@ -239,7 +239,7 @@ class Chat extends ChangeNotifier {
   Future<void> loadConversations() async {
     return _loadingConversations ??= () async {
       try {
-        final result = await api.get('/chat/conversations');
+        final result = await retryTemporary(() => api.get('/chat/conversations'));
         ready = true;
         loadFailed = false;
         await _storeSummaries((result['conversations'] as List).cast<Json>(), replace: true);

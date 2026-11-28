@@ -41,6 +41,7 @@ class Api {
   Future<dynamic> _send(String method, String path, [Object? body, bool retried = false]) async {
     final abort = Completer<void>();
     final request = http.AbortableRequest(method, Uri.parse(Config.api(path)), abortTrigger: abort.future)..headers.addAll(_headers);
+    request.headers['accept'] = 'application/json';
     if (body != null) {
       request.headers['content-type'] = 'application/json';
       request.body = jsonEncode(body);
@@ -54,10 +55,15 @@ class Api {
     } finally {
       timer.cancel();
     }
+    final text = utf8.decode(response.bodyBytes, allowMalformed: true);
+    final isHtml = response.headers['content-type']?.contains('text/html') ?? false;
+    if ((response.statusCode == 403 && RegExp(r'^\s*\{\s*"message"\s*:\s*"Access denied by Imunify360 bot-protection\.').hasMatch(text)) ||
+        (isHtml && text.contains('Please wait while your request is being verified'))) {
+      throw ApiError(response.statusCode, 'hosting_verification', 'Hosting verification blocked this request. Please try again later.');
+    }
     if (response.statusCode == 401 && !retried && !path.startsWith('/auth/otp') && !path.startsWith('/auth/refresh') && refresh != null) {
       if (await refresh!()) return _send(method, path, body, true);
     }
-    final text = utf8.decode(response.bodyBytes);
     final dynamic data;
     try {
       data = text.isEmpty ? <String, dynamic>{} : jsonDecode(text);
@@ -98,7 +104,10 @@ Future<T> retryTemporary<T>(Future<T> Function() request) async {
   try {
     return await request();
   } on ApiError catch (error) {
-    if (error.status != 0 && ![502, 503, 504].contains(error.status)) rethrow;
+    if (error.code == 'hosting_verification' ||
+        (error.status != 0 && ![502, 503, 504].contains(error.status))) {
+      rethrow;
+    }
     await Future<void>.delayed(const Duration(milliseconds: 450));
     return request();
   }

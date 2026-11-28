@@ -27,7 +27,7 @@ export const tokenStore = {
   },
 };
 
-const BASE_HEADERS = { 'x-talkie-client': 'web' } as const;
+const BASE_HEADERS = { 'x-talkie-client': 'web', accept: 'application/json' } as const;
 
 /** Exchanges the HttpOnly refresh cookie for a new access token. Concurrent callers share one request. */
 export function refreshSession(): Promise<boolean> {
@@ -73,19 +73,24 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
     if ((error as Error).name === 'AbortError') throw error;
     throw new ApiError(0, 'network', 'network');
   }
-  if (response.status === 401 && !retried && !path.startsWith('/auth/otp') && !path.startsWith('/auth/refresh')) {
-    if (await refreshSession()) return api<T>(path, options, true);
-    onSignedOut?.();
-  }
   const text = await response.text().catch((error: Error) => {
     if (error.name === 'AbortError') throw error;
     throw new ApiError(0, 'network', 'network');
   });
+  const isHtml = response.headers.get('content-type')?.includes('text/html');
+  if ((response.status === 403 && /^\s*\{\s*"message"\s*:\s*"Access denied by Imunify360 bot-protection\./.test(text)) ||
+      (isHtml && text.includes('Please wait while your request is being verified'))) {
+    throw new ApiError(response.status, 'hosting_verification', 'Hosting verification blocked this request. Please try again later.');
+  }
   let data: unknown;
   try {
     data = text ? (JSON.parse(text) as unknown) : {};
   } catch {
     throw new ApiError(response.status, 'invalid_response', 'Talkie could not read the server response. Try again.');
+  }
+  if (response.status === 401 && !retried && !path.startsWith('/auth/otp') && !path.startsWith('/auth/refresh')) {
+    if (await refreshSession()) return api<T>(path, options, true);
+    onSignedOut?.();
   }
   if (!response.ok) {
     const error = (data as ErrorBody | null)?.error ?? { code: 'internal', message: 'error' };
@@ -99,7 +104,7 @@ export async function retryTemporary<T>(request: () => Promise<T>): Promise<T> {
   try {
     return await request();
   } catch (error) {
-    if (!(error instanceof ApiError) || ![0, 502, 503, 504].includes(error.status)) throw error;
+    if (!(error instanceof ApiError) || error.code === 'hosting_verification' || ![0, 502, 503, 504].includes(error.status)) throw error;
     await new Promise((resolve) => setTimeout(resolve, 450));
     return request();
   }

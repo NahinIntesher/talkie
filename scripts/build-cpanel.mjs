@@ -65,6 +65,8 @@ if (!existsSync(join(standalone, 'apps', 'web', 'server.js'))) throw new Error('
 step('Assembling build/cpanel');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
+const revision = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout?.trim();
+if (/^[a-f0-9]{40}$/.test(revision ?? '')) writeFileSync(join(out, 'revision.txt'), revision + '\n');
 cpSync(join(root, 'infra', 'cpanel', 'app.cjs'), join(out, 'app.cjs'));
 cpSync(join(root, 'infra', 'cpanel', 'update.sh'), join(out, 'update.sh'));
 cpSync(join(root, 'build', 'migrate.mjs'), join(out, 'migrate.mjs'));

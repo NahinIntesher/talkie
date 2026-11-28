@@ -11,7 +11,9 @@ import { phase6 } from './e2e-phase6.ts';
 
 const root = resolve(import.meta.dirname, '..');
 const services = ['auth', 'users', 'notify', 'chat', 'realtime', 'media', 'meet', 'admin'] as const;
-const ports = { auth: 4101, users: 4102, chat: 4103, realtime: 4104, media: 4105, meet: 4106, notify: 4107, admin: 4108 };
+const base = Number(process.env.E2E_EXTERNAL && process.env.TALKIE_PORT_BASE) || 4100;
+const ports = { auth: base + 1, users: base + 2, chat: base + 3, realtime: base + 4, media: base + 5, meet: base + 6, notify: base + 7, admin: base + 8 };
+const gateway = process.env.E2E_GATEWAY_ORIGIN;
 const children: ChildProcess[] = [];
 /** Becomes the platform owner (admin panel checks). Signs in again on later runs. */
 const OWNER_EMAIL = 'boss.e2e@example.com';
@@ -51,7 +53,8 @@ async function until<T>(fn: () => T | undefined | Promise<T | undefined>, ms = 8
 }
 
 async function call<T = any>(service: keyof typeof ports, path: string, init: { method?: string; body?: unknown; token?: string } = {}): Promise<{ status: number; body: T }> {
-  const response = await fetch(`http://127.0.0.1:${ports[service]}${path}`, {
+  const url = gateway ? `${gateway}/api${path}` : `http://127.0.0.1:${ports[service]}${path}`;
+  const response = await fetch(url, {
     method: init.method ?? (init.body === undefined ? 'GET' : 'POST'),
     headers: { ...(init.body === undefined ? {} : { 'content-type': 'application/json' }), ...(init.token ? { authorization: `Bearer ${init.token}` } : {}) },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
@@ -96,7 +99,7 @@ async function signUp(name: string, email = `${name}.${Date.now()}@example.com`,
 function connect(person: Person) {
   return new Promise<void>((resolveConnect, reject) => {
     // E2E_TRANSPORT=polling checks the long-polling fallback.
-    const socket = io(`http://127.0.0.1:${ports.realtime}`, { path: '/ws', transports: [process.env.E2E_TRANSPORT === 'polling' ? 'polling' : 'websocket'], auth: { token: person.token } });
+    const socket = io(gateway ?? `http://127.0.0.1:${ports.realtime}`, { path: '/ws', transports: [process.env.E2E_TRANSPORT === 'polling' ? 'polling' : 'websocket'], auth: { token: person.token } });
     socket.onAny((event, payload) => person.events.push({ event, payload }));
     socket.on('connect', () => resolveConnect());
     socket.on('connect_error', reject);
@@ -125,12 +128,14 @@ async function main() {
   await e2ee.ready();
   // E2E_EXTERNAL=1: test services that are already running (e.g. the cPanel bundle's app.cjs on ports 4101–4108);
   // sign-in codes are then the fixed development code.
+  // Set E2E_GATEWAY_ORIGIN to exercise API and realtime routing through that local cPanel bundle.
   if (!process.env.E2E_EXTERNAL) for (const name of services) start(name);
   const up = await until(async () => {
-    const states = await Promise.all(services.map((s) => fetch(`http://127.0.0.1:${ports[s]}/healthz`).then((r) => r.ok).catch(() => false)));
+    const states = await Promise.all(services.map((s) => fetch(`http://127.0.0.1:${ports[s]}/readyz`).then((r) => r.ok).catch(() => false)));
     return states.every(Boolean) ? true : undefined;
-  }, 30_000);
-  check('all seven services are up', !!up);
+  }, 60_000);
+  check('all eight services are up', !!up);
+  if (!up) return;
 
   const ayesha = await signUp('ayesha');
   const rafiEmail = `rafi.${Date.now()}@example.com`;

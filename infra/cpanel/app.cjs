@@ -18,6 +18,8 @@ const { spawn } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 
 const ROOT = __dirname;
+const revisionFile = path.join(ROOT, 'revision.txt');
+const revision = fs.existsSync(revisionFile) ? fs.readFileSync(revisionFile, 'utf8').trim() : null;
 const started = Date.now();
 // Everything is also written to talkie.log in the app folder: LiteSpeed keeps only errors (stderr.log).
 const LOG_FILE = path.join(__dirname, 'talkie.log');
@@ -147,6 +149,7 @@ async function health(res) {
   ]);
   const body = {
     gateway: 'up',
+    revision,
     host: typeof PhusionPassenger !== 'undefined' ? 'passenger' : 'litespeed-or-node',
     uptimeSeconds: Math.round(process.uptime()),
     services: Object.fromEntries(names.map((name, i) => [name, results[i]])),
@@ -196,6 +199,8 @@ const gateway = http.createServer((req, res) => {
         return;
       }
       if (res.headersSent) return res.destroy();
+      const service = Object.keys(port).find((name) => port[name] === target.port);
+      log('upstream unavailable:', service, error.code || error.name);
       res.writeHead(503, { 'content-type': 'application/json', 'retry-after': '3' });
       res.end('{"error":{"code":"unavailable","message":"Talkie is starting. Try again in a moment."}}');
     });

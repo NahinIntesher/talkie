@@ -362,12 +362,13 @@ class _DevicesScreenState extends State<DevicesScreen> {
   bool historyPending = false;
   bool transferring = false;
   bool? backupComplete;
+  bool backupStatusFailed = false;
   Future<void> _backup() async {
     final t = context.read<Prefs>().t;
     final chat = context.read<Chat>();
     setState(() => transferring = true);
     try {
-      final setup = (await api.get('/chat/history/backup'))['backup'] == null;
+      final setup = (await retryTemporary(() => api.get('/chat/history/backup')))['backup'] == null;
       if (!mounted) return;
       var code = setup ? Crypto.instance.newRecoveryCode() : '';
       final confirmed = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(
@@ -394,7 +395,13 @@ class _DevicesScreenState extends State<DevicesScreen> {
           : setup ? t('এই ডিভাইসের পাঠযোগ্য চ্যাট ব্যাকআপ হয়েছে। নতুন বার্তাও সংরক্ষিত হবে।', 'Readable chats are backed up. New messages are protected automatically.')
           : t('${result.added}টি বার্তা ফিরেছে।', '${result.added} messages restored.')); }
     } catch (error) {
-      if (mounted) showMessage(context, error is FormatException ? t('কী মিলছে না। সংরক্ষিত কীটি আবার পেস্ট করুন।', 'Key does not match. Paste the saved key again.') : t('সম্পূর্ণ হয়নি। একই কী নিয়ে আবার চেষ্টা করুন।', 'Could not finish. Retry with the same key.'), error: true);
+      if (mounted) {
+        showMessage(context, error is FormatException
+            ? t('কী মিলছে না। সংরক্ষিত কীটি আবার পেস্ট করুন।', 'Key does not match. Paste the saved key again.')
+            : error is ApiError && error.code == 'hosting_verification'
+                ? error.message
+                : t('সম্পূর্ণ হয়নি। আবার চেষ্টা করুন।', 'Could not finish. Try again.'), error: true);
+      }
     } finally { if (mounted) setState(() => transferring = false); }
   }
 
@@ -465,9 +472,16 @@ class _DevicesScreenState extends State<DevicesScreen> {
 
   Future<void> _loadBackup() async {
     try {
-      final result = await api.get('/chat/history/backup');
-      if (mounted) setState(() => backupComplete = result['backup'] == null ? null : result['complete'] == true);
-    } catch (_) {}
+      final result = await retryTemporary(() => api.get('/chat/history/backup'));
+      if (mounted) {
+        setState(() {
+          backupComplete = result['backup'] == null ? null : result['complete'] == true;
+          backupStatusFailed = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => backupStatusFailed = true);
+    }
   }
 
   Future<void> _loadHistoryRequests() async {
@@ -542,7 +556,9 @@ class _DevicesScreenState extends State<DevicesScreen> {
           ? const Center(child: CircularProgressIndicator())
           : ListView(children: [
               ListTile(leading: const Icon(LucideIcons.shieldCheck), title: Text(t('চ্যাট ব্যাকআপ ও রিকভারি', 'Chat backup and recovery')),
-                subtitle: Text(switch (backupComplete) {
+                subtitle: Text(backupStatusFailed
+                    ? t('ব্যাকআপের অবস্থা দেখা যায়নি। আবার চেষ্টা করুন।', 'Backup status could not load. Try again.')
+                    : switch (backupComplete) {
                   true => t('চ্যাট ব্যাকআপ সম্পূর্ণ', 'Chat backup complete'),
                   false => t('কিছু বার্তার ব্যাকআপ বাকি', 'Some messages still need backup'),
                   null => t('পুরোনো ফোন ছাড়াও চ্যাট পেতে রিকভারি কী সংরক্ষণ করুন।', 'Save a recovery key to restore chats without your old phone.'),
